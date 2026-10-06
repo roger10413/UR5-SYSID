@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.csv
+*.asv
+*.mat
+outputs/
+constvel_*_20*/
+constaccel_*_20*/
+report_figs_*/
