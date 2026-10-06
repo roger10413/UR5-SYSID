@@ -14,7 +14,7 @@
 3. URScript：縮排規則、只含 ASCII、每次循環兩個 speedj（加速＋定速、減速）、movej 只改 J0 且依次錯開。
 4. main()：J0 視窗未設定、RTDE 失敗時在送出前中止；QUICK 端對端自動命名。
 5. 分析：合成資料（已知 J、B、Tc，加上鎖定馬達角度的漣波與雜訊）能找回 J、B、Tc；
-   且「起始角錯開」比「每次同一起點」的 J 誤差小。
+   「起始角錯開」比「每次同一起點」的 J 誤差小；換階段後力矩有延遲時，跳過前 40 ms 可去除偏差。
 """
 
 import os
@@ -180,9 +180,11 @@ class TestMain(Base):
         self.assertTrue(any("_neg_quick_" in n for n in csvs))
 
 
-def synth_csv(m, path, d, J0, B0, TC0, use_offsets=True, seed=0):
-    """依 v3 軌跡產生合成資料：理想追隨（qd = target），tau = J·a + B·v + Tc + 漣波(φ) + 雜訊。"""
+def synth_csv(m, path, d, J0, B0, TC0, use_offsets=True, seed=0, lag_s=0.0):
+    """依 v3 軌跡產生合成資料：理想追隨（qd = target），tau = J·a + B·v + Tc + 漣波(φ) + 雜訊。
+    lag_s > 0 時，慣性力矩 J·a 以一階延遲（時間常數 lag_s）跟隨，模擬換階段後力矩建立的暫態。"""
     rng = np.random.default_rng(seed)
+    ja = 0.0
     acc, n = m.stage_config("FULL")
     th = m.hold_time(m.V_PEAK, m.HOLD_MOTOR_REVS)
     offs = m.start_offsets_rad(n) if use_offsets else [0.0] * n
@@ -190,11 +192,12 @@ def synth_csv(m, path, d, J0, B0, TC0, use_offsets=True, seed=0):
     rows = []
 
     def emit(q, v, a):
-        nonlocal t
+        nonlocal t, ja
+        ja = J0 * a if lag_s <= 0 else ja + (J0 * a - ja) * dt / (lag_s + dt)
         phi = (q * m.GEAR_RATIO) % (2 * math.pi)
         ripple = 1.2 * math.cos(5 * phi + 0.7) + 0.8 * math.sin(12 * phi) + 0.4 * math.cos(2 * phi)
         fr = (B0 * abs(v) + TC0) * (1 if v > 1e-9 else (-1 if v < -1e-9 else 0))
-        tau = J0 * a + fr + (ripple if abs(v) > 1e-9 else 0.0) + rng.normal(0, 0.4)
+        tau = ja + fr + (ripple if abs(v) > 1e-9 else 0.0) + rng.normal(0, 0.4)
         rows.append({"timestamp": t, "actual_q_0": q, "actual_qd_0": v + rng.normal(0, 0.002),
                      "actual_current_0": tau / m.KT_OUT, "target_qd_0": v})
         t += dt
@@ -251,6 +254,22 @@ class TestAnalysis(unittest.TestCase):
                     r = m.analyze_const_accel_v3(p, 0, m.KT_OUT, +1, m.ACCEL_LEVELS, m.V_PEAK, n_boot=20)
             err[use] = np.max(np.abs(r["J_levels"] - J0))
         self.assertLess(err[True], err[False], f"錯開 {err[True]:.4f} vs 不錯開 {err[False]:.4f}")
+
+    def test_settle_removes_transient_bias(self):
+        """換階段後力矩有一階延遲（15 ms）時，跳過前 40 ms 可去除大部分偏差。"""
+        m = load("v3_ana3")
+        J0, B0, TC0 = 2.0, 32.5, 8.9
+        err = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "syn.csv")
+            synth_csv(m, p, +1, J0, B0, TC0, lag_s=0.015)
+            for st in (0.0, 0.040):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    r = m.analyze_const_accel_v3(p, 0, m.KT_OUT, +1, m.ACCEL_LEVELS, m.V_PEAK,
+                                                 settle_s=st, n_boot=20)
+                err[st] = np.max(np.abs(r["J_levels"] - J0))
+        self.assertLess(err[0.040], err[0.0], f"跳過 {err[0.040]:.4f} vs 不跳過 {err[0.0]:.4f}")
+        self.assertLess(err[0.040], 0.08, f"跳過 40 ms 後各檔 J 最大誤差 {err[0.040]:.4f}")
 
 
 if __name__ == "__main__":

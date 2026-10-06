@@ -44,6 +44,7 @@ import socket
 import statistics
 import threading
 import time
+import warnings
 from datetime import datetime
 
 import numpy as np
@@ -380,11 +381,23 @@ def _runs(mask):
     return np.split(idx, np.where(np.diff(idx) != 1)[0] + 1) if len(idx) else []
 
 
+def _time_since_ramp_start(t, dtq):
+    """每個樣本距離所屬斜坡（target_qd 開始上升或下降）起點的時間；不在斜坡上為 inf。
+    斜坡起點取「target 開始改變的前一個樣本」，即控制器開始換階段的時刻。"""
+    since = np.full(len(t), np.inf)
+    for r in _runs(dtq > 1e-6) + _runs(dtq < -1e-6):
+        t0 = t[r[0] - 1] if r[0] > 0 else t[r[0]]
+        since[r] = t[r] - t0
+    return since
+
+
 def analyze_const_accel_v3(csv_path, joint_index, kt_out, direction, accel_levels, v_peak,
-                           v_lo=0.05, v_hi_frac=0.95, n_bins=6, trim=2, match_tol=0.20,
-                           n_boot=500, seed=0):
+                           v_lo=0.05, v_hi_frac=0.95, n_bins=6, settle_s=0.040, trim=0,
+                           match_tol=0.20, n_boot=500, seed=0):
     """
     以 target_qd 切出每次循環的加速段（斜坡上升）、定速段、減速段（斜坡下降），依加速度歸檔。
+    每次換階段（靜止→加速、定速→減速）後的前 settle_s 秒不用：v2 資料顯示換階段後力矩
+    需要數十 ms 才建立到穩定值（a = 2.0 整段都在此暫態內），這段若納入會使 tau_acc、tau_dec 偏離。
     速度分箱（v_lo ～ v_hi_frac·V_PEAK，n_bins 箱）後，對每一檔、每一箱：
         J_bin = [tau_acc − tau_dec] / (|a_acc| + |a_dec|)      （a 用實測速度直線擬合的斜率）
         f_bin = [tau_acc + tau_dec] / 2                         （摩擦曲線）
@@ -405,8 +418,9 @@ def analyze_const_accel_v3(csv_path, joint_index, kt_out, direction, accel_level
     v_hi = v_hi_frac * v_peak
     edges = np.linspace(v_lo, v_hi, n_bins + 1)
 
-    acc_runs = [r[trim:] for r in _runs((dtq > 1e-6) & (tq > v_lo) & (tq < v_hi)) if len(r) > trim + 2]
-    dec_runs = [r[trim:] for r in _runs((dtq < -1e-6) & (tq > v_lo) & (tq < v_hi)) if len(r) > trim + 2]
+    settled = _time_since_ramp_start(t, dtq) >= settle_s - 1e-9
+    acc_runs = [r[trim:] for r in _runs((dtq > 1e-6) & (tq > v_lo) & (tq < v_hi) & settled) if len(r) > trim + 2]
+    dec_runs = [r[trim:] for r in _runs((dtq < -1e-6) & (tq > v_lo) & (tq < v_hi) & settled) if len(r) > trim + 2]
     hold_runs = [r for r in _runs(np.abs(tq - v_peak) < 1e-4) if len(r) > 10]
 
     def classify(run, sign):
@@ -447,6 +461,11 @@ def analyze_const_accel_v3(csv_path, joint_index, kt_out, direction, accel_level
         return dict(cycles=[])
 
     def estimate(cs):
+        with warnings.catch_warnings():                      # 被 settle_s 排空的速度箱為 NaN，屬預期
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return _estimate(cs)
+
+    def _estimate(cs):
         res = {}
         per = []
         for li, a in enumerate(accel_levels):
@@ -498,7 +517,7 @@ def analyze_const_accel_v3(csv_path, joint_index, kt_out, direction, accel_level
     est["se_J_levels"] = se("J_levels")
     est["cycles"] = cycles
 
-    print(f"配對成功循環數：{len(cycles)}")
+    print(f"配對成功循環數：{len(cycles)}（每次換階段後前 {settle_s * 1000:.0f} ms 不用）")
     used = [li for li in range(len(accel_levels)) if any(c["level"] == li for c in cycles)]
     se_lv = np.atleast_1d(est["se_J_levels"])
     print(f"{'檔位a':>6}{'循環':>6}{'實測a':>9}{'J':>10}{'±':>8}")
