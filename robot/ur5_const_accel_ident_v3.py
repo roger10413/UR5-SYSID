@@ -80,7 +80,7 @@ MID_N_REPEAT = 4
 QUICK_N_REPEAT = 2
 GEAR_RATIO = 101
 HOLD_MOTOR_REVS = 4                    # 定速段長度：4 個馬達圈（0.25 rad/s 時約 1.0 s）
-PAUSE_TIME = 0.3                       # 每次循環前後靜止時間 [s]（須小於結束判定的 1 s 靜止窗）
+PAUSE_TIME = 0.5                       # 每次循環前後靜止時間 [s]（須小於結束判定的 1 s 靜止窗）。v2 的 0.1 s 在 movej 回程後速度仍在衰減，改為 0.5 s
 
 QD_MAX = 0.30
 QDD_CHECK_LIMIT = 3.0
