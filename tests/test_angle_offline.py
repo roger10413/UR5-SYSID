@@ -156,6 +156,24 @@ class TestPlan(Base):
                     for j in range(1, 6):
                         self.assertAlmostEqual(vals[j], HOME_Q[j], places=5)
 
+    def test_urscript_returns_home(self):
+        m = load("ang_home")
+        for d in (+1, -1):
+            _, _, segs = plan(m, "FULL", d)
+            s = m.build_urscript(segs, d, 0, HOME_Q, m.SPEEDJ_ACCEL, m.STOPJ_DECEL,
+                                 m.MOVEJ_ACCEL, m.MOVEJ_VEL, m.PAUSE_TIME, m.DT, end_deg=m.END_J0_DEG)
+            self.assertTrue(urscript_indent_ok(s))
+            self.assertEqual(s.count("movej("), len(segs) + 1, "最後要多一個回原點的 movej")
+            last = [ln for ln in s.splitlines() if "movej(" in ln][-1]
+            vals = [float(x) for x in last.split("[")[1].split("]")[0].split(",")]
+            self.assertAlmostEqual(math.degrees(vals[0]), 180.0, places=4)
+            for j in range(1, 6):
+                self.assertAlmostEqual(vals[j], HOME_Q[j], places=5)
+            self.assertGreater(s.rfind("movej("), s.rfind("stopj("), "回原點應在最後一段 stopj 之後")
+            t0 = m.estimate_total_time(segs, 180.0, m.STOPJ_DECEL)
+            t1 = m.estimate_total_time(segs, 180.0, m.STOPJ_DECEL, end_deg=m.END_J0_DEG)
+            self.assertGreater(t1, t0)
+
 
 class TestMain(Base):
     def _run(self, m, stage="QUICK", direction=+1):

@@ -20,6 +20,7 @@ UR5 J0 固定角度窗口定速實驗 —— 鑑別 B, Tc，並觀察摩擦與�
   4. stopj 減速，停 PAUSE_TIME 後進入下一段
   回程與段間移動都用 movej 絕對定位（同 ur5_const_accel_ident_v2_movej.py，已實測
   200 次往復殘差 −0.0014° / −0.0041°），不會累積角度。
+  全部段跑完後 movej 回到 J0 = END_J0_DEG（180°，診斷原點），可直接接著跑定加速度實驗。
 
 速度順序 SPEED_ORDER：
   "UP"      ：0.02 → 0.20
@@ -79,6 +80,7 @@ SPEED_ORDER = "UP_DOWN"                              # FULL 用；"UP" 或 "UP_D
 GEAR_RATIO = 101
 N_MOTOR_REVS_WINDOW = 10        # 窗口長度：10 個馬達圈 = 10 × 360/101 = 35.64°
 WINDOW_CENTER_DEG = 180.0       # 窗口中心（絕對角度）
+END_J0_DEG = WINDOW_CENTER_DEG  # 全部段跑完後 movej 回到的 J0 角度（= 診斷原點的 180°），可直接接定加速度實驗
 SETTLE_TIME = 0.5               # 進入窗口前，在目標速度至少穩定的時間 [s]
 OVERRUN_DEG = 0.5               # 越過窗口終點後再走多少才 stopj [deg]
 
@@ -164,17 +166,19 @@ def estimate_movej_time(dist_rad, v_peak, accel):
     return 2.0 * t_up + (dist_rad - 2 * d_up) / v_peak
 
 
-def estimate_total_time(segs, q0_deg, decel):
+def estimate_total_time(segs, q0_deg, decel, end_deg=None):
     total, pos = 0.0, q0_deg
     for s in segs:
         total += estimate_movej_time(math.radians(abs(s["start_deg"] - pos)), MOVEJ_VEL, MOVEJ_ACCEL)
         total += PAUSE_TIME + s["t_expect"] + s["speed"] / decel + PAUSE_TIME
         pos = s["extreme_deg"]
+    if end_deg is not None:                                   # 結束後回原點
+        total += estimate_movej_time(math.radians(abs(end_deg - pos)), MOVEJ_VEL, MOVEJ_ACCEL) + PAUSE_TIME
     return total
 
 
 def safety_check(segs, qd_max, qdd_max, accel, decel, movej_vel, movej_accel,
-                 safe_min_deg, safe_max_deg, margin_deg):
+                 safe_min_deg, safe_max_deg, margin_deg, end_deg=None):
     """
     回傳 (ok, lines, (planned_min_deg, planned_max_deg))。
     絕對角度檢查：所有段的起點與煞車後最遠點，各外推 margin_deg，都必須在 J0 視窗內。
@@ -197,6 +201,8 @@ def safety_check(segs, qd_max, qdd_max, accel, decel, movej_vel, movej_accel,
     chk("movej 加速度", movej_accel, qdd_max, "rad/s^2")
 
     pts = [s["start_deg"] for s in segs] + [s["extreme_deg"] for s in segs]
+    if end_deg is not None:
+        pts.append(end_deg)
     lo_plan, hi_plan = min(pts) - margin_deg, max(pts) + margin_deg
     lines.append(f"規劃絕對角度範圍（含餘裕 {margin_deg:.1f}°） : {lo_plan:.2f}° 至 {hi_plan:.2f}°")
     if safe_min_deg is None or safe_max_deg is None:
@@ -232,12 +238,13 @@ def check_start_position(q0_deg, first_start_deg, max_move_deg, safe_min_deg, sa
 # ============================================================
 
 def build_urscript(segs, direction, joint_index, q_others, accel, decel,
-                   movej_accel, movej_vel, pause_time, dt):
+                   movej_accel, movej_vel, pause_time, dt, end_deg=None):
     """
     q_others：六軸絕對角度 [rad]（取自執行開始時 RTDE 量到的值），只替換 J0 當作各段 movej 目標，
     其他五軸維持原值不動。
     每段：movej → 停 → 迴圈（每週期 speedj 一次，讀 J0 實際角度，越過 stop 角度或達次數上限即離開）
           → stopj → 停。
+    end_deg 不為 None 時，全部段結束後再 movej 回 J0 = end_deg（其他五軸不變）。
     """
     lines = ["def const_velocity_angle_program():"]
     cmp_op = "<" if direction > 0 else ">"
@@ -260,6 +267,12 @@ def build_urscript(segs, direction, joint_index, q_others, accel, decel,
         lines.append("    n = n + 1")
         lines.append("  end")
         lines.append(f"  stopj({decel})")
+        lines.append(f"  sleep({pause_time})")
+    if end_deg is not None:
+        q_e = list(q_others)
+        q_e[joint_index] = math.radians(end_deg)
+        lines.append("  # return to home J0")
+        lines.append(f"  movej([{', '.join(f'{v:.6f}' for v in q_e)}], a={movej_accel}, v={movej_vel})")
         lines.append(f"  sleep({pause_time})")
     lines.append("end")
     return "\n".join(lines) + "\n"
@@ -511,7 +524,7 @@ def main():
 
     ok, report, (lo_plan, hi_plan) = safety_check(
         segs, QD_MAX, QDD_CHECK_LIMIT, SPEEDJ_ACCEL, STOPJ_DECEL, MOVEJ_VEL, MOVEJ_ACCEL,
-        J0_SAFE_MIN_DEG, J0_SAFE_MAX_DEG, SAFETY_MARGIN_DEG)
+        J0_SAFE_MIN_DEG, J0_SAFE_MAX_DEG, SAFETY_MARGIN_DEG, end_deg=END_J0_DEG)
     print("\n".join(report))
     if not ok:
         print("\n[中止] 安全檢查未通過。")
@@ -570,8 +583,9 @@ def main():
         return
 
     script_text = build_urscript(segs, DIRECTION, JOINT_INDEX, logger.last_q_full,
-                                 SPEEDJ_ACCEL, STOPJ_DECEL, MOVEJ_ACCEL, MOVEJ_VEL, PAUSE_TIME, DT)
-    est_total = estimate_total_time(segs, q0_deg, STOPJ_DECEL)
+                                 SPEEDJ_ACCEL, STOPJ_DECEL, MOVEJ_ACCEL, MOVEJ_VEL, PAUSE_TIME, DT,
+                                 end_deg=END_J0_DEG)
+    est_total = estimate_total_time(segs, q0_deg, STOPJ_DECEL, end_deg=END_J0_DEG)
 
     status, elapsed, motion_span = "unknown", 0.0, 0.0
     try:
