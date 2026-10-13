@@ -490,8 +490,23 @@ def analyze_angle_window(csv_path, joint_index, kt_out, direction, speed_levels,
     for k, s in enumerate(segments):
         print(f"{k+1:3d}{s['speed']:7.2f}{s['n']:6d}{s['revs']:10.2f}{s['qd_mean']:10.4f}{s['tau_mean']:10.3f}")
     print(f"B = {coef[0]:.3f} ± {se[0]:.3f}，Tc = {coef[1]:.3f} ± {se[1]:.3f}（{len(y)} 段）")
-    return dict(segments=segments, B=float(coef[0]), Tc=float(coef[1]),
-                se_B=float(se[0]), se_Tc=float(se[1]), q_deg=q, tau=tau, t=t)
+    out = dict(segments=segments, B=float(coef[0]), Tc=float(coef[1]),
+               se_B=float(se[0]), se_Tc=float(se[1]), q_deg=q, tau=tau, t=t)
+    # 升速趟、降速趟分開回歸（速度先升後降時）：兩者差異 = 時間或順序效應
+    sp = [seg["speed"] for seg in segments]
+    k = int(np.argmax(sp))
+    if k + 1 < len(sp) and sp[k + 1] == sp[k]:
+        k += 1                                        # 最高速有兩段時，第二段起算降速趟
+    if k >= 2 and len(sp) - k >= 2:
+        for name, sl in (("up", slice(0, k)), ("down", slice(k, None))):
+            c, *_ = np.linalg.lstsq(X[sl], y[sl], rcond=None)
+            out[f"B_{name}"], out[f"Tc_{name}"] = float(c[0]), float(c[1])
+        print(f"升速趟 B = {out['B_up']:.3f}、Tc = {out['Tc_up']:.3f}；"
+              f"降速趟 B = {out['B_down']:.3f}、Tc = {out['Tc_down']:.3f}")
+    # |tau| 對角度的斜率（各段直線擬合後平均）：位置效應或保守力矩
+    out["dtau_dq"] = float(np.mean([np.polyfit(q[seg["idx"]], np.abs(tau[seg["idx"]]), 1)[0] for seg in segments]))
+    print(f"|tau| 對角度斜率（各段平均）= {out['dtau_dq']:+.4f} N·m/°")
+    return out
 
 
 # ============================================================

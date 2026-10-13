@@ -29,12 +29,24 @@ v3 的做法：
   D. 暖機：請先執行 ur5_j0_warmup.py。
 
 ★★★ 使用前必讀 ★★★
-1. 【新腳本，尚未經學長審查，也尚未上機】依 TEST_STAGE = QUICK → MID → FULL 階梯執行。
+1. 【2026/10/13 已上機（定速段 4 個馬達圈）】本版修改尚未經學長審查，依 TEST_STAGE = QUICK → MID → FULL 階梯執行。
 2. 【方向分開兩次執行】DIRECTION=+1 先做，人工確認後才改 −1。
 3. 【URScript 為逐次展開】每次循環的 movej 目標角度不同（起始角錯開），程式把每次循環都
    明確寫出來，不在 URScript 內做清單運算；FULL 約 80 次循環、約 500 行。
 4. 【J0 視窗預設拒絕】J0_SAFE_MIN_DEG / J0_SAFE_MAX_DEG 未設定一律中止。
 5. 【IP 需要你自己再次確認】
+6. 【起點固定為 J0 = START_J0_DEG（180°）】程式先 movej 到起點（J1～J5 不動），目前 J0 離起點
+   超過 MAX_INITIAL_MOVE_DEG 即中止；結束時 movej 回起點。不需再手動回原點。
+
+10/13 實測與本版修改
+-------------------
+  10/13 正反轉 FULL（定速段 4 個馬達圈）：起始角錯開有效消除漣波，但減速段摩擦比加速段高
+  0.8～1.0 N·m（與 a 無關），標準算法各檔 J 不一致（0.24～1.59）。含截距回歸（截距吸收此摩擦差）
+  得 J = 1.82 / 1.86（正 / 反轉）。本版：
+  (1) HOLD_MOTOR_REVS 改為 0（加速後立即以同 a 減速，三角形速度曲線）：加速段與減速段在行程、
+      時間上更接近。若摩擦差明顯變小 → 主要為行程效應；若不變 → 為加減速本身的摩擦差異。
+  (2) 起點固定 180°（見上方第 6 點）。
+  (3) 分析輸出含截距回歸 J 的 bootstrap 誤差，截距顯著不為 0 時提示改用含截距的 J。
 """
 
 import csv
@@ -79,7 +91,7 @@ N_REPEAT = 20                          # 每檔次數；起始角錯開 1/N_REPE
 MID_N_REPEAT = 4
 QUICK_N_REPEAT = 2
 GEAR_RATIO = 101
-HOLD_MOTOR_REVS = 4                    # 定速段長度：4 個馬達圈（0.25 rad/s 時約 1.0 s）
+HOLD_MOTOR_REVS = 0                    # 定速段長度 [馬達圈]。10/13 用 4（0.25 rad/s 時約 1.0 s）；本版 0 = 三角形速度曲線
 PAUSE_TIME = 0.5                       # 每次循環前後靜止時間 [s]（須小於結束判定的 1 s 靜止窗）。v2 的 0.1 s 在 movej 回程後速度仍在衰減，改為 0.5 s
 
 QD_MAX = 0.30
@@ -88,6 +100,8 @@ MAX_EXCURSION_DEG = 90.0               # 單次循環離起點最遠距離的警
 MOVEJ_RETURN_ACCEL = 1.0               # 同 v2
 MOVEJ_RETURN_VEL = 0.15                # 同 v2
 EXCURSION_MARGIN_FACTOR = 1.5          # 控制器軌跡產生器的不確定係數；QUICK 實測後回填
+START_J0_DEG = 180.0                   # 起點 J0 絕對角度（= 診斷原點）；None = 以目前角度為起點（10/13 版行為）
+MAX_INITIAL_MOVE_DEG = 40.0            # 目前 J0 到起點的最大允許距離 [deg]，超過即中止
 
 SAMPLE_HZ = 125.0
 DT = 1.0 / SAMPLE_HZ
@@ -178,6 +192,20 @@ def check_j0_window(q0_deg, planned_excursion_deg, direction, margin, safe_min_d
     return True, msg + " -> OK"
 
 
+def check_initial_move(q_now_deg, start_deg, max_move_deg, safe_min_deg, safe_max_deg):
+    """目前 J0 → 起點的 movej：距離不得超過 max_move_deg，且目前角度須在 J0 視窗內；視窗未設定一律拒絕。"""
+    if safe_min_deg is None or safe_max_deg is None:
+        return False, "J0_SAFE_MIN_DEG / J0_SAFE_MAX_DEG 尚未設定，拒絕執行"
+    lo, hi = min(safe_min_deg, safe_max_deg), max(safe_min_deg, safe_max_deg)
+    dist = abs(start_deg - q_now_deg)
+    msg = f"目前 J0 {q_now_deg:+.2f}° → 起點 {start_deg:+.2f}°（{dist:.2f}°，上限 {max_move_deg:.1f}°）"
+    if not (lo <= q_now_deg <= hi):
+        return False, msg + " -> 目前角度在 J0 視窗外"
+    if dist > max_move_deg:
+        return False, msg + " -> 距離超過上限，請先手動移近起點"
+    return True, msg + " -> OK"
+
+
 def movej_time(dist_rad, v, a):
     if dist_rad <= 0:
         return 0.0
@@ -227,7 +255,7 @@ def build_full_urscript(accels, v_peak, n_repeat, t_hold, direction, joint_index
         for k, off in enumerate(offs):
             lines.append(f"  movej({q_str(off)}, a={movej_accel}, v={movej_vel})")
             lines.append(f"  sleep({pause_time})")
-            lines.append(f"  speedj({qd_peak_s}, a={a}, t={t_ramp + t_hold:.6f})")
+            lines.append(f"  speedj({qd_peak_s}, a={a}, t={t_ramp + t_hold:.6f})")   # t_hold = 0 時為三角形
             lines.append(f"  speedj({qd_zero_s}, a={a}, t={t_ramp:.6f})")
             lines.append(f"  stopj({a})")
             lines.append(f"  sleep({pause_time})")
@@ -514,6 +542,10 @@ def analyze_const_accel_v3(csv_path, joint_index, kt_out, direction, accel_level
                 if key in b and np.shape(b[key]) == ref and np.all(np.isfinite(b[key]))]
         return np.std(vals, axis=0) if vals else float("nan")
     est["se_J_origin"], est["se_B"], est["se_Tc"] = se("J_origin"), se("B"), se("Tc")
+    if "J_slope" in est:
+        est["se_J_slope"], est["se_J_intercept"] = se("J_slope"), se("J_intercept")
+        # 截距 = −(加減速段摩擦差)/2；顯著不為 0 時，各檔 J 與過原點 J 都有偏差，應改用含截距的 J
+        est["intercept_significant"] = bool(abs(est["J_intercept"]) > 2 * est["se_J_intercept"])
     est["se_J_levels"] = se("J_levels")
     est["cycles"] = cycles
 
@@ -527,7 +559,11 @@ def analyze_const_accel_v3(csv_path, joint_index, kt_out, direction, accel_level
         print(f"{accel_levels[li]:6.2f}{n:6d}{est['a_levels'][k]:9.3f}{est['J_levels'][k]:10.4f}{s:8.4f}")
     print(f"J（過原點，各檔合併） = {est['J_origin']:.4f} ± {est['se_J_origin']:.4f}")
     if "J_slope" in est:
-        print(f"J（含截距）= {est['J_slope']:.4f}，截距 = {est['J_intercept']:+.4f} N·m（應接近 0）")
+        print(f"J（含截距）= {est['J_slope']:.4f} ± {est['se_J_slope']:.4f}，"
+              f"截距 = {est['J_intercept']:+.4f} ± {est['se_J_intercept']:.4f} N·m（應接近 0）")
+        if est["intercept_significant"]:
+            print(f"[注意] 截距顯著不為 0：減速段摩擦比加速段多約 {-2 * est['J_intercept']:+.2f} N·m，"
+                  f"各檔 J 與過原點 J 不可用，請採用含截距的 J；摩擦曲線 B、Tc 同樣受影響")
     print(f"摩擦曲線：B = {est['B']:.3f} ± {est['se_B']:.3f}，Tc = {est['Tc']:.3f} ± {est['se_Tc']:.3f}")
     print(f"定速段力矩 − f(V_PEAK) = {est['hold_minus_f']:+.4f} N·m（應接近 0）")
     return est
@@ -586,8 +622,18 @@ def main():
         print(f"\n[中止] RTDE 記錄未能啟動：{logger.error}。未送出任何軌跡，手臂未動作。")
         return
 
-    q_start = logger.last_q0
-    q_start_full = logger.last_q_full
+    q_now = logger.last_q0
+    q_start_full = list(logger.last_q_full)
+    if START_J0_DEG is not None:
+        q_start_full[JOINT_INDEX] = math.radians(START_J0_DEG)
+    q_start = q_start_full[JOINT_INDEX]
+    m_ok, m_msg = check_initial_move(math.degrees(q_now), math.degrees(q_start), MAX_INITIAL_MOVE_DEG,
+                                     J0_SAFE_MIN_DEG, J0_SAFE_MAX_DEG)
+    print(f"\n[起點檢查] {m_msg}")
+    if not m_ok:
+        logger.stop()
+        print("\n[中止] 起點檢查未通過，未送出任何軌跡，手臂未動作。")
+        return
     w_ok, w_msg = check_j0_window(math.degrees(q_start), planned_deg, DIRECTION,
                                   EXCURSION_MARGIN_FACTOR, J0_SAFE_MIN_DEG, J0_SAFE_MAX_DEG)
     print(f"\n[J0 視窗檢查] {w_msg}")
@@ -636,6 +682,7 @@ def main():
     with open(info_path, "w", encoding="utf-8") as f:
         f.write(f"方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n加速度檔位: {accels}\n每檔次數: {n_repeat}\n")
         f.write(f"峰值速度: {V_PEAK}\n定速時間: {t_hold:.4f}s（{HOLD_MOTOR_REVS} 個馬達圈）\n")
+        f.write(f"起點 J0: {math.degrees(q_start):.3f}°（開始時 {math.degrees(q_now):.3f}°）\n")
         f.write(f"預估總時長: {est_total:.1f}s\n執行狀態: {status}\n")
         f.write(logger.summary() + "\n")
         if measured:

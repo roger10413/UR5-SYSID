@@ -263,6 +263,10 @@ class TestAnalysis(unittest.TestCase):
                 self.assertAlmostEqual(sg["revs"], 10.0, delta=0.05)
             self.assertAlmostEqual(r["B"], B0, delta=0.15, msg=f"方向 {d:+d}")
             self.assertAlmostEqual(r["Tc"], TC0, delta=0.02, msg=f"方向 {d:+d}")
+            # 升降趟分開回歸、力矩對角度斜率（合成資料無時間與位置效應 → 兩趟相同、斜率近 0）
+            self.assertAlmostEqual(r["B_up"], r["B_down"], delta=0.4)
+            self.assertAlmostEqual(r["Tc_up"], r["Tc_down"], delta=0.05)
+            self.assertAlmostEqual(r["dtau_dq"], 0.0, delta=0.002)
 
 
 if __name__ == "__main__":
