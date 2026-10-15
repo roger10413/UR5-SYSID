@@ -28,7 +28,8 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 robot/                                   上機腳本（會送指令給機械臂）
   ur5_const_velocity_angle_ident.py      固定角度窗口定速實驗：所有速度、正反轉都掃過同一段 J0 角度（10 個馬達圈）
   ur5_j0_warmup.py                       暖機：J0 來回轉動，溫度與摩擦指標穩定後自動結束
-  ur5_const_accel_ident_v3.py            定加速度 v3：梯形速度＋起始角錯開 1/20 馬達圈，並含離線分析函式
+  ur5_const_accel_ident_v3.py            定加速度 v3：三角形速度（定速段 0）＋起始角錯開 1/20 馬達圈，並含離線分析函式
+  ur5_const_accel_ident_v3_trapezoid.py  定加速度 v3 梯形對照版：只改定速段為 4 個馬達圈與輸出前綴 constaccel_v3trap_
   ur5_home_pose.py                       診斷原點姿態檢查（預設只檢查、不移動）
 tests/                                   離線測試（假 RTDE、封鎖網路）
 docs/
@@ -36,6 +37,7 @@ docs/
   EXPERIMENT_PLAN_ACCEL_V3.md            定加速度 v3 規劃與合成資料驗證
 analysis/
   1013/                                  10/13 實驗分析（Python）：定速 3 輪比較、定加速度 v3、報告圖
+  1015/                                  10/15 實驗分析（Python）：定速溫度效應、三角形 vs 梯形 v3、卡爾曼濾波殘差分解
 matlab/
   constvel/                              定速法分析與共用函式
   analysis_1007/                         定速重複實驗與定加速度（v2）分析
@@ -54,6 +56,18 @@ python -m unittest discover -s tests -v
 - `accel_v3_analysis.py`：定加速度 v3 標準算法、含截距回歸 `J`（bootstrap 誤差）、換階段跳過時間敏感度。
 - `report_figs_1013.py`：報告圖（需 matplotlib 與中文字型 Microsoft JhengHei）。
 - 資料路徑寫在 `BASE`，請改成自己的資料夾（內含各次實驗的 `constvel_angle_*`、`constaccel_v3_*` 子資料夾）。
+
+## Python 分析（`analysis/1015/`）
+
+需要 numpy、scipy、matplotlib。資料路徑寫在 `data_1015.py` 的 `BASE`（內含各次 `constvel_angle_*`、`constaccel_v3_*`、`constaccel_v3trap_*` 子資料夾），結果存到 `BASE/analysis_1015/`。
+
+- `data_1015.py`：檔案清單、讀檔、逐樣本運動特徵（方向、起步後行程、加減速階段、馬達角）。
+- `constvel_1015.py`：定速 3 輪的 `B`、`Tc`，以及各速度檔力矩對溫度的回歸。
+- `accel_v3_1015.py`：三角形與梯形 v3 的含截距回歸（沿用 `../1013/accel_v3_analysis.py`）；摩擦基準取同日定速對溫度回歸在該次溫度的值。
+- `kalman_1015.py`：卡爾曼濾波＋RTS 平滑，狀態為角度、速度、加速度與模型外力矩 `d`；雜訊參數以新息對數概似最大化調整。
+- `kalman_residual_1015.py`：殘差分解——依序加入馬達角漣波、溫度、速度非線性、起步後行程、加減速階段，以運動段重抽樣估計係數標準差；再把鑑別出的各項放回濾波器重跑。
+- `report_figs_1015.py`、`kalman_figs_1015.py`：報告圖。
+- 執行順序：`constvel_1015.py` → `accel_v3_1015.py` → `report_figs_1015.py`；`kalman_residual_1015.py` → `kalman_figs_1015.py`（濾波結果快取在 `analysis_1015/kf_cache/`）。
 
 ## MATLAB 分析（R2025a）
 
