@@ -7,7 +7,8 @@
       三參數 → 馬達角漣波 → 溫度 → 速度非線性 → 起步後行程 → 加減速階段
     加速度用指令值（估計的加速度含雜訊，當回歸變數會低估 J）。
     以運動段為單位 bootstrap 估計標準差（殘差在時間上相關，逐樣本的回歸誤差會低估）。
- 3. 檢查：J 是否隨運動類型改變、絕對角度與行程能否分開、行程與時間哪個較能解釋
+ 3. 檢查：J 是否隨運動類型改變、絕對角度與行程能否分開、行程與時間哪個較能解釋、
+    漣波是否隨運動狀態改變、J 對起步後行程節點的敏感度
  4. 擴增狀態卡爾曼濾波（kalman_1015.kf_rts，狀態 [q, v, a, d]）：名義三參數模型與擴充模型
     （把鑑別出的各項當成已知力矩）各跑一次，比較模型外力矩 d̂ 的大小與概似
 所有數值以運動方向為正（τ、v、a 乘上指令速度的正負號）。
@@ -25,7 +26,8 @@ CACHE = os.path.join(OUT, "kf_cache"); os.makedirs(CACHE, exist_ok=True)
 T_REF = 31.0                                        # 溫度項的參考溫度 [°C]
 NOMINAL = dict(J=1.75, B={+1: 33.80, -1: 33.79}, Tc={+1: 8.92, -1: 9.16})   # 10/15 定速第 2 輪（31.1 °C）；J 取 10/13 含截距回歸
 K_RIPPLE = 24                                       # 漣波：馬達角 1～24 次諧波，正反轉各一組
-KNOTS = np.array([0, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50.0])   # 起步後行程分段線性基底 [°]，g(0) = 0
+KNOTS = np.array([0, 1, 2, 3, 4, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50.0])   # 起步後行程分段線性基底 [°]，g(0) = 0
+# 節點間距至少 1°：起步後約 3° 內殘差有週期約 0.5～1.5° 的振盪（原因未確認），0.5° 間距的節點會跟著它擺動（曲線出現鋸齒）
 V_MIN_STEADY, V_MIN_RAMP = 0.015, 0.05
 ORDER = ["三參數", "漣波", "溫度", "速度非線性", "起步後行程", "加減速階段"]
 SMOOTH_N = 25                                       # 「慢變殘差」：同一運動段內 25 個樣本（0.2 s）移動平均
@@ -303,6 +305,37 @@ if __name__ == "__main__":
     e_t = lsq(ct, [n_ for n_ in full if n_ not in G["起步後行程"]] + tn, y)[1]
     tvt = (np.sqrt(np.mean(e_t ** 2)), slow_rms(e_t, info["seg"]))
     print(f"[時間 vs 行程] 起步後行程 RMS {base:.4f}（慢變 {base_s:.4f}）；改成起步後時間 RMS {tvt[0]:.4f}（慢變 {tvt[1]:.4f}）")
+
+    # ---- 5b. 漣波是否隨運動狀態改變（在完整模型上再加入） ----
+    rip_n = G["漣波"]; vv = info["v"]
+    m_v3 = np.isin(info["kind"], ["tri", "trap"]) & info["main"]; m_mj = ~info["main"]
+    print("\n[漣波是否隨運動狀態改變]（在完整模型上再加入）")
+    for lab, extra in (("v3、movej 各用一組漣波係數", {**{f"{n_}|v3": cols[n_] * m_v3 for n_ in rip_n}, **{f"{n_}|mj": cols[n_] * m_mj for n_ in rip_n}}),
+                       ("2、4、5、10、12 次諧波隨速度線性變化", {f"{n_}·v": cols[n_] * vv for n_ in rip_n if int(n_[1:-1]) in (2, 4, 5, 10, 12)})):
+        c2 = dict(cols); c2.update(extra); p2, e2 = lsq(c2, full + list(extra), y)
+        print(f"  {lab}（+{len(extra)} 參數）：RMS {base:.4f} → {np.sqrt(np.mean(e2 ** 2)):.4f}，"
+              f"慢變 {base_s:.4f} → {slow_rms(e2, info['seg']):.4f}，J {p2[0]:.3f}")
+    prr = e_full + np.column_stack([cols[n_] for n_ in rip_n]) @ np.array([P[n_] for n_ in rip_n])
+    print("  依速度分箱：漣波的部分殘差對 2、5、12 次諧波回歸（振幅 N·m ∠ 相位）")
+    for sg, lab in ((1, "正轉"), (-1, "反轉")):
+        for lo, hi in ((0.015, 0.03), (0.03, 0.06), (0.06, 0.1), (0.1, 0.15), (0.15, 0.22), (0.22, 0.3)):
+            m = (info["s"] == sg) & (vv >= lo) & (vv < hi); out = []
+            for k in (2, 5, 12):
+                A = np.column_stack([np.cos(k * info["phi"][m]), np.sin(k * info["phi"][m]), np.ones(m.sum())])
+                c, *_ = np.linalg.lstsq(A, prr[m], rcond=None)
+                out.append(f"{k} 次 {np.hypot(c[0], c[1]):.2f}∠{np.degrees(np.arctan2(c[1], c[0])):+4.0f}°")
+            print(f"    {lab} v ∈ [{lo:.3f}, {hi:.3f}) rad/s，{m.sum():6d} 樣本：" + "  ".join(out))
+
+    # ---- 5c. J 對起步後行程節點的敏感度（其他項不變） ----
+    print("\n[J 對起步後行程節點的敏感度]（其他項不變，只換行程項的節點）")
+    base_n = [n_ for n_ in full if n_ not in G["起步後行程"]]
+    for lab, kk in (("0.5° 起（0, 0.5, 1, 1.5, 2, 3, 4, …）", np.r_[0, 0.5, 1, 1.5, 2, KNOTS[3:]]), ("目前（1° 起）", KNOTS),
+                    ("每個馬達圈一個（3.564°）", np.r_[np.arange(0, 45, 360 / 101), 50.0])):
+        Hk = hat_basis(info["travel"], kk); ck = dict(cols); nk = []
+        for j in range(Hk.shape[1]):
+            ck[f"k{j}"] = Hk[:, j]; nk.append(f"k{j}")
+        pk, ek = lsq(ck, base_n + nk, y)
+        print(f"  {lab}：J {pk[0]:.3f}，RMS {np.sqrt(np.mean(ek ** 2)):.4f}，慢變 {slow_rms(ek, info['seg']):.4f}")
 
     # ---- 6. 擴增狀態濾波器：名義模型 vs 擴充模型 ----
     h = param_tag(p_full); kfn = lambda r: known_extended(r, P); mext = ext_model(P)

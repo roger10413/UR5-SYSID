@@ -102,13 +102,13 @@ fig.tight_layout(); fig.savefig(os.path.join(FIG, "figK3_ripple_motor_angle.png"
 pr = part("起步後行程"); tr = info["travel"]
 gi = [names.index(n) for n in G["起步後行程"]]
 ref = (kr.hat_basis(np.array([10.0]), kr.KNOTS) @ Z["p"][gi])[0]
-xs = np.linspace(kr.KNOTS[1], 50, 496); gcurve = kr.hat_basis(xs, kr.KNOTS) @ Z["p"][gi] - ref   # 0～0.5° 樣本很少，曲線從 0.5° 畫起
+xs = np.linspace(0, 50, 501); gcurve = kr.hat_basis(xs, kr.KNOTS) @ Z["p"][gi] - ref
 grp = [("三角形 v3（主運動）", (info["kind"] == "tri") & info["main"], "#3a9e5c", "o"),
        ("梯形 v3（主運動）", (info["kind"] == "trap") & info["main"], "#b5397a", "s"),
        ("定速（主運動）", (info["kind"] == "cv") & info["main"], CB, "^"),
        ("movej 回程", ~info["main"], CR, "v")]
 fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
-ed = np.r_[np.arange(0, 4, 0.5), np.arange(4, 10, 1), np.arange(10, 52, 2.5)]; nb = len(ed) - 1; cen = (ed[1:] + ed[:-1]) / 2
+ed = np.r_[np.arange(0, 10, 1), np.arange(10, 52, 2.5)]; nb = len(ed) - 1; cen = (ed[1:] + ed[:-1]) / 2   # 箱寬不小於節點間距
 for ax, sg, lb in ((axs[0], 1, "正轉"), (axs[1], -1, "反轉")):
     for nm, m, c, mk in grp:
         mm = m & (info["s"] == sg); bi = np.digitize(tr[mm], ed) - 1; ok_ = (bi >= 0) & (bi < nb)
