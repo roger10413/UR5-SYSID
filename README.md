@@ -10,6 +10,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 
 - **定速法**：單一方向、穩態（qdd ≈ 0），多個定速值做線性回歸 → `B`、`Tc`
 - **定加速度法**：同一速度下「加速段 − 減速段」消去摩擦 → `J`。10/13 實測減速段摩擦比加速段多一個與加速度無關的常數，故以多個加速度檔做含截距回歸（斜率 = `J`）
+- **速度調變法**：巡航速度上疊加正弦速度（速度不歸零、不反向），力矩中與加速度同相的成分 → `J`，與速度同相的成分 → 局部摩擦斜率；以 4 種頻率、振幅檢查 `J` 是否隨頻率或振幅改變
 
 本 repo 只含程式與文件，不含真機量測資料。
 
@@ -18,6 +19,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 `robot/` 內的腳本**會透過 URScript（port 30002）直接驅動真實機械臂**。
 
 - `ur5_const_velocity_angle_ident.py`、`ur5_j0_warmup.py`、`ur5_const_accel_ident_v3.py` 已於 2026/10/13 上機；之後的修改（見 `docs/` 各規劃第 7 節）**尚未經安全審查**。
+- `ur5_velocity_modulation_ident.py`（2026/10/19 新增）**尚未經安全審查，也尚未上機**；請依 `TEST_STAGE` = QUICK → MID → FULL 執行。
 - 在能連到機台的電腦上，請勿直接執行主程式；離線檢查請只用 `py_compile` 或 `tests/`（測試會封鎖網路並使用假的 RTDE）。
 - 執行前務必確認 `ROBOT_IP`、J0 安全視窗（`J0_SAFE_MIN_DEG` / `J0_SAFE_MAX_DEG`，未設定時程式會中止）、手臂周圍淨空，並有人在緊急停止按鈕旁。
 - 正轉、反轉分開執行，每個方向結束後人工確認。
@@ -30,6 +32,7 @@ robot/                                   上機腳本（會送指令給機械臂
   ur5_j0_warmup.py                       暖機：J0 來回轉動，溫度與摩擦指標穩定後自動結束
   ur5_const_accel_ident_v3.py            定加速度 v3：三角形速度（定速段 0）＋起始角錯開 1/20 馬達圈，並含離線分析函式
   ur5_const_accel_ident_v3_trapezoid.py  定加速度 v3 梯形對照版：只改定速段為 4 個馬達圈與輸出前綴 constaccel_v3trap_
+  ur5_velocity_modulation_ident.py       速度調變實驗：巡航 0.12 rad/s 上疊加正弦（4 種頻率、振幅 × 7 次，起點錯開 1/7 馬達圈），並含離線分析函式
   ur5_home_pose.py                       診斷原點姿態檢查（預設只檢查、不移動）
 tests/                                   離線測試（假 RTDE、封鎖網路）
 docs/
@@ -49,6 +52,17 @@ matlab/
 pip install numpy
 python -m unittest discover -s tests -v
 ```
+
+## 速度調變實驗的分析
+
+```python
+import ur5_velocity_modulation_ident as vm
+r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm.V_CRUISE)   # 反轉用 -1
+```
+
+- 每個條件分開回歸：`J`、`B_local` ± 標準差（考慮段內殘差自相關）、實測加速度振幅、追隨增益與延遲；並以不同模型寫法（無漣波項、只取主要諧波、無 v²、行程項改為共用曲線、無行程項）重算 `J`。
+- 跨條件：`J` 加權平均與卡方（各條件是否一致）、`J` 對 1/A 回歸（減速時摩擦較大時 `J` 會隨振幅變化）、`B_local` 對 ω² 回歸（電流相對編碼器的延遲）。
+- 每個條件至少要 2 段才回歸，QUICK、MID 的資料只列出各段的頻率、振幅與追隨情形。
 
 ## Python 分析（`analysis/1013/`）
 
