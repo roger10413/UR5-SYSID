@@ -18,11 +18,16 @@
 5. URScript：縮排規則、只含 ASCII、每段兩個有次數上限且有角度保護的迴圈（正轉 "<"、反轉 ">"）、
    movej 只改 J0 且最後回到 180°；照腳本逐週期算出的速度指令 = 巡航 + A·sin(2πft)，
    最低速度不低於下限、加速度低於 speedj 上限、整數週期使調變不改變總位移。
-6. main()：視窗未設定、RTDE 失敗、起始位置過遠時都在送出前中止；QUICK 端對端自動命名。
-7. 分析（合成資料：J = 1.5、10/15 實測的漣波與起步後行程曲線、白雜訊 + 慢變雜訊、伺服延遲 3 ms）：
+6. main()：視窗未設定、RTDE 失敗、起始位置過遠時都在送出前中止；QUICK 端對端自動命名（含姿態），
+   CSV 含額外訊號欄位（假 RTDE 沒有的方法該欄留空）。
+7. 姿態：check_pose 只比 J1~J5、±0.5°、±360° 等價，未知姿態、讀不到、NaN 一律拒絕；兩個姿態的法蘭距離
+   與 UR5 DH 計算相符；法蘭線速度上限。main()：EXT45 端對端（movej 只改 J0、J1~J5 維持外伸）；
+   姿態與實際角度不符、EXT45 未輸入姿態名稱、未知姿態時都在送出前中止。
+8. 分析（合成資料：J = 1.5、10/15 實測的漣波與起步後行程曲線、白雜訊 + 慢變雜訊、伺服延遲 3 ms）：
    兩個方向都找回 J、B_local、追隨增益與延遲；減速時摩擦較大時各條件 J 依 J − 2c/(πA) 變化、
    J 對 1/A 回歸找回 J 與 c；電流延遲 2 ms 時 J 依 J − B_local·Δ 偏低、由 B_local 隨頻率的變化找回延遲；
-   起點錯開使無漣波項模型的 J 不偏（不錯開則 2 Hz 偏低）；QUICK、MID 資料只列各段、不當機。
+   起點錯開使無漣波項模型的 J 不偏（不錯開則 2 Hz 偏低）；QUICK、MID 資料只列各段、不當機；
+   target_moment 對 target_qdd 回歸找回 J_model（兩個方向、QUICK 也可），舊資料沒有此欄位時略過。
 """
 
 import os
@@ -49,9 +54,12 @@ VM = os.path.join(ROBOT, "ur5_velocity_modulation_ident.py")
 ANG = os.path.join(ROBOT, "ur5_const_velocity_angle_ident.py")
 
 HOME_Q = [3.14159265, -1.57079633, 1.57079633, -1.57079633, -1.57079633, 0.0]
+EXT45_Q = [HOME_Q[0]] + [math.radians(x) for x in (-45.0, 45.0, -90.0, -90.0, 0.0)]
+FAKE_MOMENT = [0.5, -40.0, 12.0, 1.5, 0.2, 0.0]
 
 
 class FakeRTDE:
+    """沒有 getTargetCurrent、getJointControlOutput：檢查不支援的訊號留空、不影響其他欄位。"""
     q = list(HOME_Q)
     def __init__(self, ip): pass
     def getTimestamp(self): return time.time()
@@ -59,6 +67,8 @@ class FakeRTDE:
     def getActualQd(self): return [0.0] * 6
     def getActualCurrent(self): return [0.0] * 6
     def getTargetQd(self): return [0.0] * 6
+    def getTargetQdd(self): return [0.0] * 6
+    def getTargetMoment(self): return list(FAKE_MOMENT)
     def getJointTemperatures(self): return [30.0] * 6
     def disconnect(self): pass
 
@@ -205,6 +215,50 @@ class TestPlan(Base):
         self.assertFalse(m.check_start_position(100.0, first, 40.0, 65, 300)[0], "離第一段起點過遠應拒絕")
         self.assertFalse(m.check_start_position(180.0, first, 40.0, 190, 300)[0], "目前角度在視窗外應拒絕")
 
+    def test_check_pose(self):
+        m = load("vm_pose_unit")
+        self.assertTrue(m.check_pose(HOME_Q, "DIAG")[0])
+        self.assertTrue(m.check_pose(EXT45_Q, "EXT45")[0])
+        self.assertFalse(m.check_pose(HOME_Q, "EXT45")[0])
+        self.assertFalse(m.check_pose(EXT45_Q, "DIAG")[0])
+        q = list(HOME_Q); q[3] += math.radians(0.4)
+        self.assertTrue(m.check_pose(q, "DIAG")[0], "差 0.4° 在容差內")
+        q[3] += math.radians(0.2)
+        self.assertFalse(m.check_pose(q, "DIAG")[0], "差 0.6° 應拒絕")
+        q = list(HOME_Q); q[1] += 2 * math.pi
+        self.assertTrue(m.check_pose(q, "DIAG")[0], "±360° 等價（同 ur5_home_pose）")
+        q = list(HOME_Q); q[0] = math.radians(100.0)
+        self.assertTrue(m.check_pose(q, "DIAG")[0], "J0 不在姿態檢查內")
+        self.assertFalse(m.check_pose(HOME_Q, "diag")[0], "未知的姿態名稱應拒絕")
+        self.assertFalse(m.check_pose(None, "DIAG")[0])
+        self.assertFalse(m.check_pose(HOME_Q[:5], "DIAG")[0])
+        q = list(HOME_Q); q[2] = float("nan")
+        self.assertFalse(m.check_pose(q, "DIAG")[0], "NaN 應拒絕")
+
+    def test_pose_geometry(self):
+        """POSES 的法蘭離 J0 軸距離與 UR5 官方 DH 計算相符；外伸姿態的法蘭仍高於底座。"""
+        m = load("vm_pose_geo")
+        d = [0.089159, 0.0, 0.0, 0.10915, 0.09465, 0.0823]
+        a = [0.0, -0.425, -0.39225, 0.0, 0.0, 0.0]
+        al = [math.pi / 2, 0.0, 0.0, math.pi / 2, -math.pi / 2, 0.0]
+        for name, p in m.POSES.items():
+            T = np.eye(4)
+            for th, di, ai, ali in zip([math.pi] + [math.radians(x) for x in p["q_deg"]], d, a, al):
+                ct, st, ca, sa = math.cos(th), math.sin(th), math.cos(ali), math.sin(ali)
+                T = T @ np.array([[ct, -st * ca, st * sa, ai * ct], [st, ct * ca, -ct * sa, ai * st],
+                                  [0, sa, ca, di], [0, 0, 0, 1]])
+            self.assertAlmostEqual(math.hypot(T[0, 3], T[1, 3]), p["r_flange_m"], delta=0.01, msg=name)
+            self.assertGreater(T[2, 3], 0.25, name)
+
+    def test_flange_speed(self):
+        m = load("vm_speed")
+        for pose in ("DIAG", "EXT45"):
+            ok, msg = m.check_flange_speed(pose, m.CONDITIONS, m.V_CRUISE)
+            self.assertTrue(ok, msg)
+        ok, msg = m.check_flange_speed("EXT45", [(1.0, 0.2)], m.V_CRUISE)
+        self.assertFalse(ok, "(0.12 + 0.2) × 0.80 m/s 超過上限應拒絕：" + msg)
+        self.assertFalse(m.check_flange_speed("FOO", m.CONDITIONS, m.V_CRUISE)[0])
+
     def test_time_estimate(self):
         m = load("vm_time")
         t = {st: m.estimate_total_time(plan(m, st, +1), 180.0, m.STOPJ_DECEL, end_deg=m.END_J0_DEG)
@@ -270,11 +324,13 @@ class TestMain(Base):
     def _run(self, m, stage="QUICK", direction=+1):
         sent = []
         m.send_urscript = lambda *a, **k: sent.append(1)
+        buf = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             m.OUTPUT_DIR = tmp
             m.TEST_STAGE, m.DIRECTION = stage, direction
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(buf):
                 m.main()
+        self.last_out = buf.getvalue()
         return sent
 
     def test_window_unset_aborts(self):
@@ -297,30 +353,83 @@ class TestMain(Base):
         FakeRTDE.q = [math.radians(100.0)] + HOME_Q[1:]       # J0 離第一段起點很遠
         self.assertEqual(self._run(m), [], "起始位置過遠時不該送出任何軌跡")
 
+    def _run_done(self, m, stage="QUICK", directions=(+1,)):
+        """送出的腳本照收、運動視為完成；回傳 (腳本, {檔名: 內容}, stdout)。"""
+        scripts, files = [], {}
+        m.send_urscript = lambda ip, text, port=30002: scripts.append(text)
+        m.wait_for_motion_complete = lambda logger, planned_s, **k: ("done", planned_s, planned_s)
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            m.OUTPUT_DIR = tmp
+            for d in directions:
+                m.TEST_STAGE, m.DIRECTION = stage, d
+                with contextlib.redirect_stdout(out):
+                    m.main()
+            for root, _, names in os.walk(tmp):
+                for n in names:
+                    with open(os.path.join(root, n), encoding="utf-8") as f:
+                        files[n] = f.read()
+        return scripts, files, out.getvalue()
+
     def test_autoname_end_to_end(self):
         m = load("vm_main4")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
-        scripts = []
-        m.send_urscript = lambda ip, text, port=30002: scripts.append(text)
-        m.wait_for_motion_complete = lambda logger, planned_s, **k: ("done", planned_s, planned_s)
-        names = set()
-        with tempfile.TemporaryDirectory() as tmp:
-            m.OUTPUT_DIR = tmp
-            for d in (+1, -1):
-                m.TEST_STAGE, m.DIRECTION = "QUICK", d
-                with contextlib.redirect_stdout(io.StringIO()):
-                    m.main()
-            for _, _, files in os.walk(tmp):
-                names.update(files)
-        csvs = sorted(n for n in names if n.endswith(".csv"))
+        scripts, files, _ = self._run_done(m, directions=(+1, -1))
+        csvs = sorted(n for n in files if n.endswith(".csv"))
         self.assertEqual(len(csvs), 2, csvs)
-        self.assertTrue(any(n.startswith("velmod_data_pos_quick_") for n in csvs))
-        self.assertTrue(any(n.startswith("velmod_data_neg_quick_") for n in csvs))
-        self.assertEqual(sum(n.startswith("velmod_info_") for n in names), 2)
+        self.assertTrue(any(n.startswith("velmod_data_diag_pos_quick_") for n in csvs))
+        self.assertTrue(any(n.startswith("velmod_data_diag_neg_quick_") for n in csvs))
+        infos = [v for n, v in files.items() if n.startswith("velmod_info_")]
+        self.assertEqual(len(infos), 2)
+        for v in infos:
+            self.assertIn("姿態 DIAG", v)
+            self.assertIn("額外訊號", v)
         self.assertEqual(len(scripts), 2)
         for s in scripts:
             self.assertTrue(s.startswith("def velocity_modulation_program():"))
             self.assertTrue(urscript_indent_ok(s))
+        # 額外訊號：有的方法照記，沒有的方法（假 RTDE 無 getTargetCurrent、getJointControlOutput）留空
+        rows = list(csv.DictReader(io.StringIO(files[csvs[0]])))
+        self.assertGreater(len(rows), 0)
+        for name in ("target_qdd", "target_moment", "target_current", "joint_control_output"):
+            for j in range(6):
+                self.assertIn(f"{name}_{j}", rows[0], name)
+        for j in range(6):
+            self.assertAlmostEqual(float(rows[0][f"target_moment_{j}"]), FAKE_MOMENT[j])
+            self.assertEqual(rows[0][f"target_current_{j}"], "")
+            self.assertEqual(float(rows[0][f"actual_q_{j}"]), HOME_Q[j], "主要欄位不受影響")
+
+    def test_ext45_end_to_end(self):
+        m = load("vm_main5")
+        m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+        m.POSE = "EXT45"
+        FakeRTDE.q = list(EXT45_Q)
+        builtins.input = lambda *a, **k: "EXT45"
+        scripts, files, out = self._run_done(m)
+        self.assertEqual(len(scripts), 1)
+        self.assertTrue(any(n.startswith("velmod_data_ext45_pos_quick_") for n in files), list(files))
+        movej = [l for l in scripts[0].splitlines() if "movej(" in l]
+        self.assertEqual(len(movej), 2)
+        for line in movej:
+            vals = [float(x) for x in line.split("[")[1].split("]")[0].split(",")]
+            for j in range(1, 6):
+                self.assertAlmostEqual(vals[j], EXT45_Q[j], places=5, msg="J1~J5 維持外伸姿態")
+        self.assertAlmostEqual(math.degrees(float(movej[-1].split("[")[1].split(",")[0])), 180.0, places=4)
+        self.assertIn("請以示教器移回診斷原點", out)
+
+    def test_pose_mismatch_aborts(self):
+        cases = [("EXT45", HOME_Q, "EXT45", "姿態檢查未通過", "設定外伸姿態，手臂在診斷原點"),
+                 ("DIAG", EXT45_Q, "yes", "姿態檢查未通過", "設定診斷原點，手臂在外伸姿態（RTDE 檢查擋下）"),
+                 ("EXT45", EXT45_Q, "yes", "已取消", "外伸姿態未輸入姿態名稱確認"),
+                 ("FOO", HOME_Q, "FOO", "未知的姿態", "未知的姿態名稱")]
+        for k, (pose, q, answer, reason, why) in enumerate(cases):
+            m = load(f"vm_pose{k}")
+            m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+            m.POSE = pose
+            FakeRTDE.q = list(q)
+            builtins.input = lambda *a, _ans=answer, **kw: _ans
+            self.assertEqual(self._run(m), [], why)
+            self.assertIn(reason, self.last_out, why)
 
 
 # ------------------------------------------------------------
@@ -353,9 +462,11 @@ def movej_profile(dist, vmax, acc, h):
 
 
 def synth_csv(m, path, d, segs, servo_ms=3.0, delay_ms=0.0, dec_extra=0.0, noise=0.4, slow=0.2, drift=0.3,
-              seed=0, h=0.001):
+              seed=0, h=0.001, model=None):
     """依 segs 產生 8 ms 取樣的 CSV。運動方向力矩 = J·a + Tc + B v + C v² + 漣波 + 起步後行程 + 漂移
-    （+ 減速時多 dec_extra）＋白雜訊與慢變雜訊；實際速度比目標晚 servo_ms；電流可再晚 delay_ms。"""
+    （+ 減速時多 dec_extra）＋白雜訊與慢變雜訊；實際速度比目標晚 servo_ms；電流可再晚 delay_ms。
+    model = (J_model, B_model, c_model) 時另寫 target_qdd_0 與
+    target_moment_0 = J_model·target_qdd + B_model·target_qd + c_model·sign(target_qd)。"""
     rng = np.random.default_rng(seed)
     sub = int(round(m.DT / h))
 
@@ -409,11 +520,19 @@ def synth_csv(m, path, d, segs, servo_ms=3.0, delay_ms=0.0, dec_extra=0.0, noise
     tau_s = tau[ii] + rng.normal(0, noise, n) + ar * moving[ii]
     q_s = np.round((q[ii] + rng.normal(0, 1e-5, n)) / LSB) * LSB
     temp = 30.0 + 2.0 * tf[ii] / tf[-1]
+    head = ["timestamp", "actual_q_0", "actual_qd_0", "actual_current_0", "target_qd_0", "joint_temp_0"]
+    extra = np.zeros((n, 0))
+    if model is not None:
+        qdd_t = np.gradient(vt, h)[ii]
+        tm = model[0] * qdd_t + model[1] * vt[ii] + model[2] * np.sign(vt[ii])
+        head += ["target_qdd_0", "target_moment_0"]
+        extra = np.column_stack([qdd_t, tm])
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["timestamp", "actual_q_0", "actual_qd_0", "actual_current_0", "target_qd_0", "joint_temp_0"])
+        w.writerow(head)
         for k in range(n):
-            w.writerow([round(k * m.DT, 6), q_s[k], va[ii[k]], tau_s[k] / m.KT_OUT, vt[ii[k]], temp[k]])
+            w.writerow([round(k * m.DT, 6), q_s[k], va[ii[k]], tau_s[k] / m.KT_OUT, vt[ii[k]], temp[k]]
+                       + list(extra[k]))
 
 
 class TestAnalysis(unittest.TestCase):
@@ -499,6 +618,24 @@ class TestAnalysis(unittest.TestCase):
             self.assertEqual(r["conditions"], {}, stage)
             for sg in r["segments"]:
                 self.assertAlmostEqual(sg["track_gain"], 1.0, delta=0.01)
+
+    def test_target_moment_model(self):
+        """target_moment 對 target_qdd、target_qd 回歸找回 J_model；QUICK、MID 也算；舊資料沒有此欄位時略過。"""
+        mdl = (2.1, 0.8, 3.0)
+        for key, d, stage, n_cond in (("model_full", +1, "FULL", 4), ("model_mid_neg", -1, "MID", 4),
+                                      ("model_quick", +1, "QUICK", 1)):
+            _, r = self.result(key, d=d, stage=stage, model=mdl)
+            self.assertEqual(sorted(r["model"]), list(range(n_cond)), key)
+            for ci, mr in r["model"].items():
+                self.assertAlmostEqual(mr["J_model"], mdl[0], delta=1e-4, msg=f"{key} 條件 {ci + 1}")
+                self.assertAlmostEqual(mr["B_model"], mdl[1], delta=1e-3, msg=f"{key} 條件 {ci + 1}")
+                self.assertLess(mr["model_resid_rms"], 1e-6, key)
+            self.assertAlmostEqual(r["J_model_mean"], mdl[0], delta=1e-4, msg=key)
+        _, r = self.result("model_full", model=mdl)
+        self.assertEqual(sorted(r["conditions"]), [0, 1, 2, 3], "加了額外欄位不影響原本的回歸")
+        _, r = self.result("pos", d=+1)
+        self.assertEqual(r["model"], {}, "舊資料沒有 target_moment 欄位")
+        self.assertNotIn("J_model_mean", r)
 
 
 if __name__ == "__main__":

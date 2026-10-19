@@ -33,6 +33,13 @@ UR5 J0 速度調變實驗 —— 鑑別 J（等效慣量），並檢查 J 是否
      同時讀 J0 實際角度，越過「調變終點 + OVERRUN_DEG」即離開迴圈（角度保護），另有次數上限。
      9/11 掃頻測試（J0 正弦運動，0.2～2 Hz）中，實際速度跟隨目標速度的增益約 1.00、延遲 2～3.5 ms。
   F. 時間：QUICK 1 段約 13 s，MID 4 段約 50 s，FULL 28 段約 5.7 分鐘（每個方向）。
+  G. 姿態 POSE：預設 DIAG（診斷原點，J1~J5 = −90°, 90°, −90°, −90°, 0°，PHM 基準）。
+     EXT45 為手臂外伸（J1、J2 = −45°、45°，其餘同診斷原點，前臂仍水平），J0 的連桿慣量由約 0.9
+     增為約 2.8 kg·m²（以 UR5 官方 DH、質量、質心與文獻連桿慣量張量計算）。兩個姿態的 J 差只來自連桿：
+     J 對連桿慣量的斜率可檢查 Kt 的比例，截距為馬達轉子與減速機部分。程式不移動 J1~J5。
+  H. 另記錄控制器的 target_qdd、target_moment、target_current、joint_control_output（只記錄，不影響動作）。
+     target_moment 對 target_qdd 回歸得到控制器模型在此姿態的 J0 慣量 J_model，可與電流算出的 J 比較
+     （Clochiatti et al. 2024 將 UR 的 target_moment 視為逆動力學前饋）。
 
 離線驗證（合成資料：J = 1.5、10/15 實測的漣波與起步後行程曲線、白雜訊 0.4 N·m 加慢變雜訊 0.2 N·m）
 -------------------------------------------------------------------------------------------
@@ -52,6 +59,9 @@ UR5 J0 速度調變實驗 —— 鑑別 J（等效慣量），並檢查 J 是否
 5. 【第一次 movej 的距離有上限】目前 J0 與第一段起點相差超過 MAX_INITIAL_MOVE_DEG 就中止。
 6. 【結束時 movej 回 J0 = END_J0_DEG（180°）】不需再手動回原點。
 7. 【IP 需要你自己再次確認】
+8. 【姿態 POSE】程式不會移動 J1~J5，請先以示教器擺好姿態；連上 RTDE 後以實際角度檢查 J1~J5
+   （±POSE_TOL_DEG），不符即中止，未知的姿態名稱也一律中止。EXT45 時法蘭離 J0 軸約 0.80 m，須輸入
+   姿態名稱，確認 J0 掃過的扇形範圍（含工具）淨空；結束後 J0 回 180°，J1~J5 仍在外伸姿態，請以示教器移回。
 """
 
 import csv
@@ -120,6 +130,20 @@ KT_OUT = 101 * 0.1350
 # 未填寫則程式中止 —— 不提供預設值。
 J0_SAFE_MIN_DEG = None
 J0_SAFE_MAX_DEG = None
+
+# 姿態：J1~J5 期望角度 [deg]，以及法蘭中心離 J0 軸的水平距離 [m]（UR5 官方 DH 計算，不含工具）。
+# 程式不會移動 J1~J5，只檢查；DIAG 以外的姿態都須在現場確認淨空。
+POSE = "DIAG"
+POSES = {
+    "DIAG": dict(q_deg=(-90.0, 90.0, -90.0, -90.0, 0.0), r_flange_m=0.50),    # 診斷原點（PHM 基準）
+    "EXT45": dict(q_deg=(-45.0, 45.0, -90.0, -90.0, 0.0), r_flange_m=0.80),   # 手臂外伸，前臂水平
+}
+POSE_TOL_DEG = 0.5               # J1~J5 與期望角度的最大允許差 [deg]（同 ur5_home_pose）
+FLANGE_SPEED_MAX = 0.25          # 法蘭水平線速度上限 [m/s]：(巡航 + 最大振幅) × 法蘭離 J0 軸距離
+
+# 額外記錄的 RTDE 輸出（只記錄，不影響動作）：(欄名, ur_rtde 方法)。控制器或 ur_rtde 不支援時該欄留空。
+EXTRA_SIGNALS = (("target_qdd", "getTargetQdd"), ("target_moment", "getTargetMoment"),
+                 ("target_current", "getTargetCurrent"), ("joint_control_output", "getJointControlOutput"))
 
 OUTPUT_DIR = "."
 
@@ -274,6 +298,37 @@ def check_start_position(q0_deg, first_start_deg, max_move_deg, safe_min_deg, sa
     return True, msg + " -> OK"
 
 
+def check_pose(q_full_rad, pose, poses=POSES, tol_deg=POSE_TOL_DEG):
+    """
+    以 RTDE 量到的六軸角度 [rad] 檢查 J1~J5 是否在 poses[pose] 的期望角度 ± tol_deg 內
+    （差值以 ±360° 等價處理，同 ur5_home_pose；J0 由 J0 視窗與起始位置檢查負責）。
+    預設拒絕：pose 不在 poses、讀不到六軸角度、角度不是有限值、任一軸超差，一律回傳 False。
+    回傳 (ok, lines)。
+    """
+    if pose not in poses:
+        return False, [f"未知的姿態 POSE = {pose!r}（可用：{', '.join(poses)}），拒絕執行"]
+    if q_full_rad is None or len(q_full_rad) != 6:
+        return False, ["讀不到六軸角度，拒絕執行"]
+    lines, ok = [f"姿態 {pose}：J1~J5 期望 {list(poses[pose]['q_deg'])}°，容差 ±{tol_deg}°"], True
+    for j, tgt in zip(range(1, 6), poses[pose]["q_deg"]):
+        cur = math.degrees(q_full_rad[j])
+        d = (cur - tgt + 180.0) % 360.0 - 180.0
+        passed = abs(d) <= tol_deg                                 # NaN 時為 False
+        ok = ok and passed
+        lines.append(f"  J{j}：目前 {cur:8.2f}°，期望 {tgt:8.2f}°，差 {d:+7.2f}°  {'[OK]' if passed else '[FAIL]'}")
+    return ok, lines
+
+
+def check_flange_speed(pose, conditions, v_cruise, poses=POSES, v_max=FLANGE_SPEED_MAX):
+    """法蘭最高水平線速度 = (巡航 + 最大振幅) × 法蘭離 J0 軸距離，須 ≤ v_max。pose 未知時拒絕。回傳 (ok, 說明)。"""
+    if pose not in poses:
+        return False, f"未知的姿態 POSE = {pose!r}（可用：{', '.join(poses)}），拒絕執行"
+    r = poses[pose]["r_flange_m"]
+    v = (v_cruise + max(amp for _, amp in conditions)) * r
+    return v <= v_max, (f"法蘭最高水平線速度（姿態 {pose}，法蘭離 J0 軸 {r:.2f} m）: {v:.4f} m/s  (限 {v_max})"
+                        + ("  [OK]" if v <= v_max else "  [FAIL]"))
+
+
 # ============================================================
 # 第二部分：URScript 產生
 # ============================================================
@@ -379,7 +434,7 @@ def wait_for_motion_complete(logger, planned_s, qd_eps=2e-3,
 
 
 # ============================================================
-# 第三部分：RTDE 記錄（同 ur5_const_velocity_angle_ident.py）
+# 第三部分：RTDE 記錄（同 ur5_const_velocity_angle_ident.py，另記錄 EXTRA_SIGNALS）
 # ============================================================
 
 class RtdeLogger:
@@ -394,6 +449,8 @@ class RtdeLogger:
         self.ctrl_times = []
         self.last_q0 = self.last_qd0 = self.last_q_full = None
         self.q0_min = self.q0_max = None
+        self.extra_reads = {name: 0 for name, _ in EXTRA_SIGNALS}    # 各額外訊號成功讀取的列數
+        self.extra_missing = []                                      # ur_rtde 沒有對應方法的訊號
         self.started_ok = threading.Event()
         self.error = None
 
@@ -414,6 +471,8 @@ class RtdeLogger:
             self.error = e
             return
         get_ts = getattr(rtde_r, "getTimestamp", None)
+        extras = [(name, getattr(rtde_r, meth, None)) for name, meth in EXTRA_SIGNALS]
+        self.extra_missing = [name for name, getter in extras if getter is None]
         writer, last_ctrl_ts, t0_ctrl = None, None, None
         poll_interval = self.period / 5.0
         try:
@@ -445,6 +504,19 @@ class RtdeLogger:
                     row[f"actual_current_{j}"] = i[j]
                     row[f"target_qd_{j}"] = tqd[j]
                     row[f"joint_temp_{j}"] = temps[j]
+                for name, getter in extras:                    # 讀不到時該列留空，不影響主要欄位
+                    vals = None
+                    if getter is not None:
+                        try:
+                            vals = list(getter())
+                        except Exception:
+                            vals = None
+                    if vals is None or len(vals) != 6:
+                        vals = [None] * 6
+                    else:
+                        self.extra_reads[name] += 1
+                    for j in range(6):
+                        row[f"{name}_{j}"] = vals[j]
                 if writer is None:
                     writer = csv.DictWriter(csv_file, fieldnames=list(row.keys()))
                     writer.writeheader()
@@ -469,6 +541,9 @@ class RtdeLogger:
         if len(self.ctrl_times) >= 3:
             d = [b - a for a, b in zip(self.ctrl_times[:-1], self.ctrl_times[1:])]
             lines.append(f"平均間隔 : {statistics.fmean(d)*1000:.4f} ms, std {statistics.pstdev(d)*1000:.4f} ms")
+        lines.append("額外訊號（成功讀取列數）: " + "，".join(
+            f"{name} {n}" + ("（ur_rtde 無此方法）" if name in self.extra_missing else "")
+            for name, n in self.extra_reads.items()))
         return "\n".join(lines)
 
 
@@ -622,6 +697,30 @@ def _wls(X, y, se):
     return cov @ ((X.T * W) @ y), np.sqrt(np.diag(cov))
 
 
+def _fit_target_moment(cs, tm, tqdd, tq):
+    """
+    控制器模型（運動方向）：target_moment = J_model·target_qdd + B_model·target_qd + 各段常數。
+    target_moment 由控制器以目標軌跡算出、沒有量測雜訊，不另估標準差；改列殘差 RMS，
+    殘差大表示 target_moment 還含有此式以外的成分。有效樣本不足時回傳 J_model = None。
+    """
+    Xs, ys = [], []
+    for g, sg in enumerate(cs):
+        ii = sg["idx"][np.isfinite(tm[sg["idx"]]) & np.isfinite(tqdd[sg["idx"]])]
+        if len(ii) < 10:
+            continue
+        D = np.zeros((len(ii), len(cs)))
+        D[:, g] = 1.0
+        Xs.append(np.column_stack([tqdd[ii], tq[ii], D]))
+        ys.append(tm[ii])
+    if not Xs:
+        return dict(J_model=None, B_model=None, model_resid_rms=None, model_n=0)
+    X, y = np.vstack(Xs), np.concatenate(ys)
+    X = X[:, np.r_[True, True, np.any(X[:, 2:] != 0, axis=0)]]   # 去掉沒有資料的段
+    p, *_ = np.linalg.lstsq(X, y, rcond=None)
+    return dict(J_model=float(p[0]), B_model=float(p[1]),
+                model_resid_rms=float(np.sqrt(np.mean((y - X @ p) ** 2))), model_n=int(len(y)))
+
+
 def analyze_velocity_modulation(csv_path, joint_index, kt_out, direction, conditions, v_cruise,
                                 gear_ratio=GEAR_RATIO, dt=DT, k_ripple=24, n_knots=9, skip_s=0.06, trim_s=0.06,
                                 hac_s=0.25):
@@ -640,22 +739,30 @@ def analyze_velocity_modulation(csv_path, joint_index, kt_out, direction, condit
     跨條件：
         J 對 1/A 回歸（J = J∞ + k/A）：k ≈ 0 表示 J 不隨振幅變化；減速時摩擦多一個常數 c 時 k = −2c/π。
         B_local 對 ω² 回歸：電流相對編碼器延遲 Δ 時，斜率 = J·Δ（也可能來自摩擦的動態特性）。
+    控制器模型（CSV 有 target_moment、target_qdd 欄位時；每個條件只要 1 段即可，QUICK、MID 也算）：
+        target_moment 對 target_qdd、target_qd 回歸（見 _fit_target_moment），J_model 為控制器模型在此姿態的
+        J0 慣量。J ÷ J_model 不是 1 時，可能是 Kt 不準，也可能是控制器模型與實際不同，須比較多個姿態才能分開。
     """
     with open(csv_path, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
+
+    def col(key):
+        if key not in rows[0]:
+            return np.full(len(rows), np.nan)
+        return np.array([float(r[key]) if r.get(key) not in (None, "", "None") else np.nan for r in rows])
+
     s = float(direction)
     t = np.array([float(r["timestamp"]) for r in rows])
     q = np.array([float(r[f"actual_q_{joint_index}"]) for r in rows])
     tq = s * np.array([float(r[f"target_qd_{joint_index}"]) for r in rows])
     tau = s * np.array([float(r[f"actual_current_{joint_index}"]) for r in rows]) * kt_out
-    temp_key = f"joint_temp_{joint_index}"
-    temp = (np.array([float(r[temp_key]) if r.get(temp_key) not in (None, "", "None") else np.nan for r in rows])
-            if temp_key in rows[0] else np.full(len(rows), np.nan))
+    temp = col(f"joint_temp_{joint_index}")
+    tm, tqdd = s * col(f"target_moment_{joint_index}"), s * col(f"target_qdd_{joint_index}")
 
     segs, skipped = find_modulation_segments(t, tq, v_cruise, conditions, dt, skip_s, trim_s)
     if not segs:
         print("[警告] 沒有找到調變區段。")
-        return dict(segments=[], skipped=skipped, conditions={})
+        return dict(segments=[], skipped=skipped, conditions={}, model={})
 
     for sg in segs:
         ii = sg["idx"]
@@ -737,7 +844,25 @@ def analyze_velocity_modulation(csv_path, joint_index, kt_out, direction, condit
             J_variants={k: v[0] for k, v in J_var.items()}, se_J_variants={k: v[1] for k, v in J_var.items()})
         res_c[ci]["J_spread"] = float(np.ptp(list(res_c[ci]["J_variants"].values())))
 
-    out = dict(segments=segs, skipped=skipped, conditions=res_c)
+    model = {}
+    for ci in sorted({sg["cond"] for sg in segs}):
+        mr = _fit_target_moment([sg for sg in segs if sg["cond"] == ci], tm, tqdd, tq)
+        if mr["J_model"] is not None:
+            model[ci] = mr
+    out = dict(segments=segs, skipped=skipped, conditions=res_c, model=model)
+    if model:
+        out["J_model_mean"] = float(np.mean([mr["J_model"] for mr in model.values()]))
+
+    def print_model():
+        if not model:
+            return
+        print("控制器模型：target_moment = J_model·target_qdd + B_model·target_qd + 各段常數（運動方向，目標值無量測雜訊）")
+        for ci, mr in model.items():
+            ratio = (f"；J ÷ J_model = {res_c[ci]['J'] / mr['J_model']:.3f}"
+                     if ci in res_c and abs(mr["J_model"]) > 1e-9 else "")
+            print(f"  條件 {ci + 1}：J_model = {mr['J_model']:.4f}，B_model = {mr['B_model']:.4f}，"
+                  f"殘差 RMS {mr['model_resid_rms']:.4f} N·m（{mr['model_n']} 點）{ratio}")
+
     used = sorted(res_c)
     print(f"調變區段：{len(segs)} 段（無法配對 {skipped} 段）；每段去掉開頭 {skip_s * 1000:.0f} ms、"
           f"結尾 {trim_s * 1000:.0f} ms；角度擬合殘差中位數 {np.median([sg['q_fit_rms'] for sg in segs]):.2e} rad")
@@ -747,6 +872,7 @@ def analyze_velocity_modulation(csv_path, joint_index, kt_out, direction, condit
             print(f"  第 {g + 1} 段：條件 {sg['cond'] + 1}，f = {sg['freq']:.3f} Hz，A = {sg['amp']:.4f} rad/s，"
                   f"{sg['n_cycles']:.2f} 個週期，實測加速度振幅 {sg['a_amp']:.3f} rad/s²，"
                   f"追隨增益 {sg['track_gain']:.3f}，延遲 {sg['track_lag_ms']:.2f} ms")
+        print_model()
         return out
     print(f"{'條件':>4}{'f[Hz]':>7}{'A':>7}{'段數':>5}{'實測a振幅':>10}{'J':>9}{'±':>7}{'B_local':>9}{'±':>7}"
           f"{'追隨增益':>9}{'延遲ms':>8}{'溫度':>7}")
@@ -761,6 +887,7 @@ def analyze_velocity_modulation(csv_path, joint_index, kt_out, direction, condit
         print(f"  條件 {ci + 1}：" + "，".join(f"{k} {v:.4f}±{r['se_J_variants'][k]:.4f}"
                                             for k, v in r["J_variants"].items())
               + f"；最大差 {r['J_spread']:.4f}")
+    print_model()
     if len(used) >= 2:
         Jc = np.array([res_c[c]["J"] for c in used]); sJ = np.array([res_c[c]["se_J"] for c in used])
         p_m, s_m = _wls(np.ones((len(used), 1)), Jc, sJ)
@@ -795,6 +922,7 @@ def main():
     print(" 速度調變實驗（巡航速度上疊加正弦）：安全檢查")
     print("=" * 70)
     print(f"方向: {'正轉 (+1)' if DIRECTION > 0 else '反轉 (-1)'}")
+    print(f"姿態: {POSE}（J1~J5 期望 {list(POSES[POSE]['q_deg']) if POSE in POSES else '未知'}°）")
 
     conds, n_repeat = stage_config(TEST_STAGE)
     segs = plan_segments(conds, n_repeat, DIRECTION, V_CRUISE, T_MOD, SETTLE_TIME, RAMP_ACCEL, STOPJ_DECEL,
@@ -808,7 +936,9 @@ def main():
         STOPJ_DECEL, MOVEJ_VEL, MOVEJ_ACCEL, J0_SAFE_MIN_DEG, J0_SAFE_MAX_DEG, SAFETY_MARGIN_DEG,
         end_deg=END_J0_DEG)
     print("\n".join(report))
-    if not ok:
+    speed_ok, speed_msg = check_flange_speed(POSE, conds, V_CRUISE)
+    print(speed_msg)
+    if not (ok and speed_ok):
         print("\n[中止] 安全檢查未通過。")
         return
 
@@ -820,23 +950,32 @@ def main():
         print("\n[中止] 找不到 rtde_receive，僅完成離線設計檢查。")
         return
 
-    print("\n執行前姿態確認（J1~J5 診斷原點）")
-    if home_pose is None:
-        print("[警告] 找不到 ur5_home_pose 模組，請手動確認 J1~J5 為 -90°, 90°, -90°, -90°, 0°")
-        if input("已確認，輸入 yes 繼續：").strip().lower() != "yes":
+    if POSE == "DIAG":
+        print("\n執行前姿態確認（J1~J5 診斷原點）")
+        if home_pose is None:
+            print("[警告] 找不到 ur5_home_pose 模組，請手動確認 J1~J5 為 -90°, 90°, -90°, -90°, 0°")
+            if input("已確認，輸入 yes 繼續：").strip().lower() != "yes":
+                print("已取消。")
+                return
+        elif not home_pose.ensure_home_pose(ROBOT_IP, mode="CHECK"):
+            print("\n[中止] 姿態不符合診斷原點。")
+            return
+    else:
+        r = POSES[POSE]["r_flange_m"]
+        print(f"\n[注意] 姿態 {POSE}：J1~J5 須先以示教器擺到 {list(POSES[POSE]['q_deg'])}°（程式不會移動這五軸）。")
+        print(f"       法蘭離 J0 軸約 {r:.2f} m（不含工具），J0 會掃過 {lo_plan:.1f}° 至 {hi_plan:.1f}°（含餘裕）。")
+        print("       請確認此扇形範圍（加上工具與線材）沒有人員與物品；連上 RTDE 後會再以實際角度檢查 J1~J5。")
+        if input(f"已確認，輸入 {POSE} 繼續：").strip() != POSE:
             print("已取消。")
             return
-    elif not home_pose.ensure_home_pose(ROBOT_IP, mode="CHECK"):
-        print("\n[中止] 姿態不符合診斷原點。")
-        return
 
-    print(f"\n即將對 IP={ROBOT_IP} 送出軌跡，關節 J{JOINT_INDEX}，方向 {DIRECTION:+d}，共 {len(segs)} 段。")
+    print(f"\n即將對 IP={ROBOT_IP} 送出軌跡，關節 J{JOINT_INDEX}，方向 {DIRECTION:+d}，姿態 {POSE}，共 {len(segs)} 段。")
     print("*** 送出後 Ctrl+C 會送出 stopj，但最可靠的仍是緊急停止按鈕 ***")
     input("按 Enter 繼續，或 Ctrl+C 取消...")
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dir_label = "pos" if DIRECTION > 0 else "neg"
-    tag = f"{dir_label}_{TEST_STAGE.lower()}_{ts}"
+    tag = f"{POSE.lower()}_{dir_label}_{TEST_STAGE.lower()}_{ts}"
     session_dir = os.path.join(OUTPUT_DIR, f"velmod_{tag}")
     os.makedirs(session_dir, exist_ok=True)
     csv_path = os.path.join(session_dir, f"velmod_data_{tag}.csv")
@@ -847,6 +986,13 @@ def main():
     if not logger.started_ok.wait(5.0):
         logger.stop()
         print(f"\n[中止] RTDE 記錄未能啟動：{logger.error}。未送出任何軌跡，手臂未動作。")
+        return
+
+    pose_ok, pose_lines = check_pose(logger.last_q_full, POSE)
+    print("\n[姿態檢查（RTDE 實際角度）]\n" + "\n".join(pose_lines))
+    if not pose_ok:
+        logger.stop()
+        print("\n[中止] 姿態檢查未通過，未送出任何軌跡，手臂未動作。")
         return
 
     q0_deg = math.degrees(logger.last_q0)
@@ -899,6 +1045,7 @@ def main():
 
     with open(info_path, "w", encoding="utf-8") as f:
         f.write(f"方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n")
+        f.write("\n".join(pose_lines) + "\n")
         f.write(f"條件 (Hz, rad/s): {conds}\n每個條件次數: {n_repeat}\n")
         f.write(f"巡航速度: {V_CRUISE}\n調變時間: {T_MOD}s\n定速時間: {SETTLE_TIME}s\n")
         f.write(f"起點錯開 [deg]: {[round(o, 6) for o in start_offsets_deg(n_repeat)]}\n")
@@ -909,6 +1056,8 @@ def main():
             f.write("\n" + "\n".join(measured) + "\n")
     print(f"\n[完成] 資料存至 {csv_path}")
     print(f"[完成] 摘要存至 {info_path}")
+    if POSE != "DIAG":
+        print(f"\n[提醒] J0 已回 {END_J0_DEG:.0f}°，J1~J5 仍在 {POSE} 姿態；請以示教器移回診斷原點。")
     print("\n下一步：analyze_velocity_modulation(csv_path, JOINT_INDEX, KT_OUT, DIRECTION, CONDITIONS, V_CRUISE)")
 
 

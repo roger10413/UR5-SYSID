@@ -10,7 +10,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 
 - **定速法**：單一方向、穩態（qdd ≈ 0），多個定速值做線性回歸 → `B`、`Tc`
 - **定加速度法**：同一速度下「加速段 − 減速段」消去摩擦 → `J`。10/13 實測減速段摩擦比加速段多一個與加速度無關的常數，故以多個加速度檔做含截距回歸（斜率 = `J`）
-- **速度調變法**：巡航速度上疊加正弦速度（速度不歸零、不反向），力矩中與加速度同相的成分 → `J`，與速度同相的成分 → 局部摩擦斜率；以 4 種頻率、振幅檢查 `J` 是否隨頻率或振幅改變
+- **速度調變法**：巡航速度上疊加正弦速度（速度不歸零、不反向），力矩中與加速度同相的成分 → `J`，與速度同相的成分 → 局部摩擦斜率；以 4 種頻率、振幅檢查 `J` 是否隨頻率或振幅改變。可改在手臂外伸姿態（`POSE = "EXT45"`）執行，比較兩個姿態的 `J`；並記錄控制器的 `target_moment`，得到控制器模型的慣量 `J_model` 作對照
 
 本 repo 只含程式與文件，不含真機量測資料。
 
@@ -20,6 +20,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 
 - `ur5_const_velocity_angle_ident.py`、`ur5_j0_warmup.py`、`ur5_const_accel_ident_v3.py` 已於 2026/10/13 上機；之後的修改（見 `docs/` 各規劃第 7 節）**尚未經安全審查**。
 - `ur5_velocity_modulation_ident.py`（2026/10/19 新增）**尚未經安全審查，也尚未上機**；請依 `TEST_STAGE` = QUICK → MID → FULL 執行。
+  - 姿態 `POSE` 預設 `DIAG`（診斷原點）。`EXT45`（J1、J2 = −45°、45°，法蘭離 J0 軸約 0.80 m）時程式**不移動 J1~J5**：須先以示教器擺好、確認 J0 掃過的扇形範圍淨空並輸入姿態名稱；連上 RTDE 後以實際角度檢查 J1~J5（±0.5°），不符或姿態名稱未知即中止。結束後 J1~J5 仍在外伸姿態，請以示教器移回。
 - 在能連到機台的電腦上，請勿直接執行主程式；離線檢查請只用 `py_compile` 或 `tests/`（測試會封鎖網路並使用假的 RTDE）。
 - 執行前務必確認 `ROBOT_IP`、J0 安全視窗（`J0_SAFE_MIN_DEG` / `J0_SAFE_MAX_DEG`，未設定時程式會中止）、手臂周圍淨空，並有人在緊急停止按鈕旁。
 - 正轉、反轉分開執行，每個方向結束後人工確認。
@@ -63,6 +64,7 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 - 每個條件分開回歸：`J`、`B_local` ± 標準差（考慮段內殘差自相關）、實測加速度振幅、追隨增益與延遲；並以不同模型寫法（無漣波項、只取主要諧波、無 v²、行程項改為共用曲線、無行程項）重算 `J`。
 - 跨條件：`J` 加權平均與卡方（各條件是否一致）、`J` 對 1/A 回歸（減速時摩擦較大時 `J` 會隨振幅變化）、`B_local` 對 ω² 回歸（電流相對編碼器的延遲）。
 - 每個條件至少要 2 段才回歸，QUICK、MID 的資料只列出各段的頻率、振幅與追隨情形。
+- CSV 有 `target_moment`、`target_qdd` 欄位時，另以 `target_moment` 對 `target_qdd`、`target_qd` 回歸，得到控制器模型在該姿態的 J0 慣量 `J_model`（目標值沒有量測雜訊，QUICK 也可算）。`J ÷ J_model` 不是 1 時，可能是 `Kt` 不準，也可能是控制器模型與實際不同，須比較多個姿態才能分開。
 
 ## Python 分析（`analysis/1013/`）
 
@@ -91,7 +93,7 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 - `sim_realistic_constvel.m`：以實測運動與漣波建立的蒙地卡羅模擬，檢驗算法偏差。
 - `matlab/analysis_1007/` 的程式會自動加入 `../constvel` 路徑；資料路徑寫在各檔開頭（`base`、`file`），請改成自己的資料夾。
 
-CSV 欄位（RTDE 125 Hz 記錄）：`timestamp`，以及各關節 `actual_q_k`、`actual_qd_k`、`actual_current_k`、`target_qd_k`、`joint_temp_k`（k = 0～5）。
+CSV 欄位（RTDE 125 Hz 記錄）：`timestamp`，以及各關節 `actual_q_k`、`actual_qd_k`、`actual_current_k`、`target_qd_k`、`joint_temp_k`（k = 0～5）。速度調變實驗另記錄 `target_qdd_k`、`target_moment_k`、`target_current_k`、`joint_control_output_k`（控制器或 ur_rtde 不支援時留空）。
 
 ## 備註
 
