@@ -19,7 +19,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 `robot/` 內的腳本**會透過 URScript（port 30002）直接驅動真實機械臂**。
 
 - `ur5_const_velocity_angle_ident.py`、`ur5_j0_warmup.py`、`ur5_const_accel_ident_v3.py` 已於 2026/10/13 上機；之後的修改（見 `docs/` 各規劃第 7 節）**尚未經安全審查**。
-- `ur5_velocity_modulation_ident.py`（2026/10/19 新增）**尚未經安全審查，也尚未上機**；請依 `TEST_STAGE` = QUICK → MID → FULL 執行。
+- `ur5_velocity_modulation_ident.py`（2026/10/19 新增）已通過安全審查（審查版本 commit `72591a7`），2026/10/22 上機（`DIAG`、`EXT45` 各 FULL 正、反轉）；新的條件或姿態仍請依 `TEST_STAGE` = QUICK → MID → FULL 執行。
   - 姿態 `POSE` 預設 `DIAG`（診斷原點）。`EXT45`（J1、J2 = −45°、45°，法蘭離 J0 軸約 0.80 m）時程式**不移動 J1~J5**：須先以示教器擺好、確認 J0 掃過的扇形範圍淨空並輸入姿態名稱；連上 RTDE 後以實際角度檢查 J1~J5（±0.5°），不符或姿態名稱未知即中止。結束後 J1~J5 仍在外伸姿態，請以示教器移回。
 - 在能連到機台的電腦上，請勿直接執行主程式；離線檢查請只用 `py_compile` 或 `tests/`（測試會封鎖網路並使用假的 RTDE）。
 - 執行前務必確認 `ROBOT_IP`、J0 安全視窗（`J0_SAFE_MIN_DEG` / `J0_SAFE_MAX_DEG`，未設定時程式會中止）、手臂周圍淨空，並有人在緊急停止按鈕旁。
@@ -85,6 +85,14 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 - `report_figs_1015.py`、`kalman_figs_1015.py`：報告圖。
 - 執行順序：`constvel_1015.py` → `accel_v3_1015.py` → `report_figs_1015.py`；`kalman_residual_1015.py` → `kalman_figs_1015.py`（濾波結果快取在 `analysis_1015/kf_cache/`）。
 
+## Python 分析（`analysis/1022/`）
+
+需要 numpy、matplotlib。資料路徑寫在 `velmod_1022.py` 的 `BASE`（內含各次 `velmod_*`、`constvel_angle_*`、`warmup_*` 子資料夾），結果存到 `BASE` 的上一層 `analysis_1022/`。執行時封鎖網路。
+
+- `velmod_1022.py`：速度調變 5 次（DIAG 正、反轉與重跑，EXT45 正、反轉）的各條件 `J`；把電流換成 `target_moment` 以同一套分析重算（檢查分析流程）；各姿態合併、`J` 對加速度振幅（`J∞ + k/A` 與直線兩種寫法）、兩姿態差 `ΔJ` 與控制器模型比較；控制器的力矩換電流比值（`target_current` 對 `target_moment` 回歸）與 J1 靜止電流；同日定速的實際速度比例與暖機各批結果。
+- `report_figs_1022.py`：報告圖（`J` 對加速度振幅；實測 `J` 與 `J_model`、`ΔJ`）。
+- 執行順序：`velmod_1022.py` → `report_figs_1022.py`。
+
 ## MATLAB 分析（R2025a）
 
 - `matlab/constvel/plot_constvel_analysis.m`：定速法主程式（回歸、漣波、頻譜、角度域濾波等圖），讀取 `DATA_FOLDER` 內的 `constvel_data_pos.csv`、`constvel_data_neg.csv`。
@@ -98,4 +106,5 @@ CSV 欄位（RTDE 125 Hz 記錄）：`timestamp`，以及各關節 `actual_q_k`�
 ## 備註
 
 - `Kt = 0.135 N·m/A` 與減速比 101 借自文獻數值，未獨立鑑別；`B`、`Tc`、`J` 的絕對值會隨 `Kt` 等比例改變。
+- 控制器內部的力矩換電流比值（10/22 資料，`target_current` = `target_moment` ÷ 比值 + 摩擦前饋）：J0 為 12.44、J1 為 12.05、J2 為 12.17 N·m/A；本研究用 0.135 × 101 = 13.64。哪個接近實際值尚未驗證。
 - 減速比 101 已由資料驗證：以 101 換算馬達角時，各速度檔的電流漣波對齊最好。
