@@ -16,23 +16,26 @@ UR5 J0 速度調變實驗 —— 鑑別 J（等效慣量），並檢查 J 是否
      速度永遠為正（不歸零、不反向），庫倫摩擦方向固定。
   B. 只分析調變段（起步後行程約 6.3° 之後）：加速度是正弦，與起步、行程無關。
      力矩中與加速度同相的成分 → J；與速度同相的成分 → 局部摩擦斜率 B_local。
-  C. 四個條件 (f, A) = (1 Hz, 0.06)、(2 Hz, 0.06)、(3 Hz, 0.06)、(2 Hz, 0.03) rad/s，
-     加速度振幅 2πf·A = 0.38、0.75、1.13、0.38 rad/s²（與 v3 的 0.3～1.2 相當）：
+  C. 六個條件 (f, A) = (1 Hz, 0.06)、(2 Hz, 0.06)、(3 Hz, 0.06)、(2 Hz, 0.03)、(1 Hz, 0.03)、(3 Hz, 0.04) rad/s，
+     加速度振幅 2πf·A = 0.38、0.75、1.13、0.38、0.19、0.75 rad/s²（前四個為 10/22 上機的條件）：
        - 各條件的 J 一致，且不隨模型寫法改變 → J 的方法可以定案。
-       - (1 Hz, 0.06) 與 (2 Hz, 0.03) 加速度振幅相同、頻率不同；(2 Hz, 0.06) 與 (2 Hz, 0.03)
-         頻率相同、振幅不同。若 J 隨振幅變化（J ≈ J∞ + k/A），表示有與加減速相關的摩擦差
-         （v3 減速段多出的摩擦即屬此類）；若只隨頻率變化，則屬動態效應。
+       - 加速度振幅相同、頻率不同：(1 Hz, 0.06) 與 (2 Hz, 0.03)，(2 Hz, 0.06) 與 (3 Hz, 0.04)；
+         (2 Hz, 0.06) 與 (2 Hz, 0.03) 頻率相同、振幅不同。若 J 隨振幅變化（J ≈ J∞ + k/A），表示有與加減速相關的
+         摩擦差（v3 減速段多出的摩擦即屬此類）；若只隨頻率變化，則屬動態效應。
+       - 10/22 實測 J 隨加速度振幅增加（0.38 → 1.13 rad/s² 時增加 13～16%），以 J∞ + k/A 與直線 a + b·A
+         外推的結果不同；(1 Hz, 0.03) 的 0.19 rad/s² 可分辨兩種寫法。(3 Hz, 0.04) 檢查 3 Hz 的 J 偏高
+         來自頻率還是振幅（10/22 的 3 Hz 同時改變了兩者）。
        - 電流相對編碼器若有延遲 Δ，B_local 會增加 J·Δ·ω²、J 會減少 B·Δ；
          由 B_local 隨頻率的變化可檢查此延遲。
   D. 調變段中心固定在 WINDOW_CENTER_DEG（180°，同定速實驗窗口中心），長 V_CRUISE·T_MOD = 34.4°，
      正轉與反轉掃過同一段角度。FULL 的第 k 次重複，起點錯開 (k − 3)/7 個馬達圈：
      馬達角漣波（10/15 實測以每圈 2、4、5、10、12 次為主）與調變的相位關係在 7 次重複中平均分布，
      7 的倍數次諧波以外都會平均掉（10/15 實測 7、14、21 次振幅皆 ≤ 0.03 N·m）。
-     條件依重複輪流執行（k = 0 的四個條件 → k = 1 的四個條件 → …），溫度與時間漂移平均分配到各條件。
+     條件依重複輪流執行（k = 0 的各條件 → k = 1 的各條件 → …），溫度與時間漂移平均分配到各條件。
   E. 控制器迴圈：每個控制週期（8 ms）以 speedj 送一次速度，正弦由 URScript 內的計數器計算；
      同時讀 J0 實際角度，越過「調變終點 + OVERRUN_DEG」即離開迴圈（角度保護），另有次數上限。
      9/11 掃頻測試（J0 正弦運動，0.2～2 Hz）中，實際速度跟隨目標速度的增益約 1.00、延遲 2～3.5 ms。
-  F. 時間：QUICK 1 段約 13 s，MID 4 段約 50 s，FULL 28 段約 5.7 分鐘（每個方向）。
+  F. 時間：QUICK 1 段約 13 s，MID 6 段約 75 s，FULL 42 段約 8.6 分鐘（每個方向；10/22 的四個條件 FULL 為 5.7 分鐘）。
   G. 姿態 POSE：預設 DIAG（診斷原點，J1~J5 = −90°, 90°, −90°, −90°, 0°，PHM 基準）。
      EXT45 為手臂外伸（J1、J2 = −45°、45°，其餘同診斷原點，前臂仍水平），J0 的連桿慣量由約 0.9
      增為約 2.8 kg·m²（以 UR5 官方 DH、質量、質心與文獻連桿慣量張量計算）。兩個姿態的 J 差只來自連桿：
@@ -40,6 +43,9 @@ UR5 J0 速度調變實驗 —— 鑑別 J（等效慣量），並檢查 J 是否
   H. 另記錄控制器的 target_qdd、target_moment、target_current、joint_control_output（只記錄，不影響動作）。
      target_moment 對 target_qdd 回歸得到控制器模型在此姿態的 J0 慣量 J_model，可與電流算出的 J 比較
      （Clochiatti et al. 2024 將 UR 的 target_moment 視為逆動力學前饋）。
+  I. 已知質量測試：法蘭加上秤過的質量（裝在法蘭軸線上），同姿態加質量前後 J 的差應為 m·r²
+     （r = 法蘭離 J0 軸距離，DIAG 0.50 m、EXT45 0.79 m），可直接檢查實測 J 的比例；控制器的 J_model
+     會隨教導器的負載設定改變，可檢查設定是否正確。負載質量 PAYLOAD_KG 寫進輸出資料夾名稱。
 
 離線驗證（合成資料：J = 1.5、10/15 實測的漣波與起步後行程曲線、白雜訊 0.4 N·m 加慢變雜訊 0.2 N·m）
 -------------------------------------------------------------------------------------------
@@ -49,7 +55,8 @@ UR5 J0 速度調變實驗 —— 鑑別 J（等效慣量），並檢查 J 是否
   模型不放漣波項時，起點錯開的 J 仍無偏差；不錯開則 2 Hz 的 J 偏低 0.09～0.17。
 
 ★★★ 使用前必讀 ★★★
-1. 【新腳本，尚未經學長審查，也尚未上機】依 TEST_STAGE = QUICK → MID → FULL 階梯執行。
+1. 【審查狀態】commit 72591a7 的版本已通過學長審查，10/22 上機（前四個條件）。之後新增條件 5、6、負載確認、
+   教導器速度滑桿檢查，尚未審查；依 TEST_STAGE = QUICK → MID → FULL 階梯執行。
 2. 【兩個方向分開執行】DIRECTION=+1 跑完、人工確認後再改 −1。
 3. 【新的 URScript 結構】調變段迴圈每週期計算 sin 後 speedj（加速度上限 MOD_ACCEL_LIMIT），
    這是新結構，需學長確認。迴圈仍遵守「第一行 def 頂格、其餘行至少縮排一格」。
@@ -59,9 +66,13 @@ UR5 J0 速度調變實驗 —— 鑑別 J（等效慣量），並檢查 J 是否
 5. 【第一次 movej 的距離有上限】目前 J0 與第一段起點相差超過 MAX_INITIAL_MOVE_DEG 就中止。
 6. 【結束時 movej 回 J0 = END_J0_DEG（180°）】不需再手動回原點。
 7. 【IP 需要你自己再次確認】
-8. 【姿態 POSE】程式不會移動 J1~J5，請先以示教器擺好姿態；連上 RTDE 後以實際角度檢查 J1~J5
+8. 【姿態 POSE】程式不會移動 J1~J5，請先以教導器擺好姿態；連上 RTDE 後以實際角度檢查 J1~J5
    （±POSE_TOL_DEG），不符即中止，未知的姿態名稱也一律中止。EXT45 時法蘭離 J0 軸約 0.80 m，須輸入
-   姿態名稱，確認 J0 掃過的扇形範圍（含工具）淨空；結束後 J0 回 180°，J1~J5 仍在外伸姿態，請以示教器移回。
+   姿態名稱，確認 J0 掃過的扇形範圍（含工具）淨空；結束後 J0 回 180°，J1~J5 仍在外伸姿態，請以教導器移回。
+9. 【負載 PAYLOAD_KG】填教導器上設定的負載質量（只有夾爪時 1.30 kg；加已知質量時為夾爪 + 質量，教導器的
+   負載質量與重心也要一併改）。未設定一律中止；執行前須輸入教導器上的負載質量，與 PAYLOAD_KG 不符即中止。
+10.【教導器速度滑桿】連上 RTDE 後讀 target_speed_fraction，不是 100% 或讀不到一律中止（10/22 冷機定速因
+   滑桿停在 52% 而作廢）；執行中的最低值寫進摘要，低於 100% 時會警告這次資料不可用。
 """
 
 import csv
@@ -95,13 +106,15 @@ JOINT_INDEX = 0
 
 DIRECTION = +1        # +1 = 正轉，-1 = 反轉。兩個方向分開執行，不要自動連續做
 # QUICK: 第一個條件（1 Hz, ±0.06）× 1 次，確認正弦迴圈、角度保護與 movej 歸位
-# MID  : 四個條件 × 各 1 次（含最大加速度 1.13 rad/s² 的 3 Hz），確認多段與較長腳本
-# FULL : 四個條件 × 各 N_REPEAT 次，起點錯開、條件輪流
+# MID  : 六個條件 × 各 1 次（含最大加速度 1.13 rad/s² 的 3 Hz），確認多段與較長腳本
+# FULL : 六個條件 × 各 N_REPEAT 次，起點錯開、條件輪流
 TEST_STAGE = "QUICK"
 
 V_CRUISE = 0.12                  # 巡航速度 [rad/s]
-CONDITIONS = [(1.0, 0.06), (2.0, 0.06), (3.0, 0.06), (2.0, 0.03)]   # (頻率 Hz, 速度振幅 rad/s)
-T_MOD = 5.0                      # 調變時間 [s]：四個條件都是整數個週期（5、10、15、10）
+# (頻率 Hz, 速度振幅 rad/s)。前四個為 10/22 上機的條件；後兩個：加速度振幅 0.19（低振幅）、
+# 0.75（3 Hz，與 2 Hz × 0.06 同振幅）。分析以頻率與振幅辨認條件，10/22 的資料也可用這份清單分析。
+CONDITIONS = [(1.0, 0.06), (2.0, 0.06), (3.0, 0.06), (2.0, 0.03), (1.0, 0.03), (3.0, 0.04)]
+T_MOD = 5.0                      # 調變時間 [s]：六個條件都是整數個週期（5、10、15、10、5、15）
 N_REPEAT = 7                     # FULL 每個條件的次數；第 k 次起點錯開 (k − 3)/7 個馬達圈
 
 GEAR_RATIO = 101
@@ -140,6 +153,14 @@ POSES = {
 }
 POSE_TOL_DEG = 0.5               # J1~J5 與期望角度的最大允許差 [deg]（同 ur5_home_pose）
 FLANGE_SPEED_MAX = 0.25          # 法蘭水平線速度上限 [m/s]：(巡航 + 最大振幅) × 法蘭離 J0 軸距離
+
+# 法蘭負載：填教導器上設定的負載質量 [kg]（只有夾爪時 1.30；加已知質量時為夾爪 + 質量）。
+# 只用於確認與記錄（寫進輸出資料夾名稱），不影響動作；未設定則程式中止 —— 不提供預設值。
+PAYLOAD_KG = None
+PAYLOAD_TOL_KG = 0.005           # 執行前輸入的教導器負載質量與 PAYLOAD_KG 的最大允許差 [kg]
+
+# 教導器速度滑桿（RTDE target_speed_fraction，0～1）的下限：滑桿會等比例縮小速度與加速度。
+SPEED_FRACTION_MIN = 0.999
 
 # 額外記錄的 RTDE 輸出（只記錄，不影響動作）：(欄名, ur_rtde 方法)。控制器或 ur_rtde 不支援時該欄留空。
 EXTRA_SIGNALS = (("target_qdd", "getTargetQdd"), ("target_moment", "getTargetMoment"),
@@ -329,6 +350,60 @@ def check_flange_speed(pose, conditions, v_cruise, poses=POSES, v_max=FLANGE_SPE
                         + ("  [OK]" if v <= v_max else "  [FAIL]"))
 
 
+def _finite_float(x):
+    """轉成有限浮點數；None、無法轉換、NaN、無窮大時回傳 None。"""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def check_payload_setting(payload_kg):
+    """PAYLOAD_KG 必須是 ≥ 0 的有限數值；未設定（None）或其他值一律拒絕。回傳 (ok, 說明)。"""
+    p = _finite_float(payload_kg)
+    if p is None or p < 0:
+        return False, f"PAYLOAD_KG = {payload_kg!r}：尚未設定或不是 ≥ 0 的數值，拒絕執行"
+    return True, f"負載設定 PAYLOAD_KG = {p:.3f} kg"
+
+
+def check_payload_entry(payload_kg, entered, tol_kg=PAYLOAD_TOL_KG):
+    """
+    操作者輸入的教導器負載質量 entered（字串）須與 PAYLOAD_KG 相差 ≤ tol_kg。
+    預設拒絕：PAYLOAD_KG 不合格、輸入讀不懂、相差超過 tol_kg，一律回傳 False。回傳 (ok, 說明)。
+    """
+    ok, msg = check_payload_setting(payload_kg)
+    if not ok:
+        return False, msg
+    e = _finite_float(entered.strip() if isinstance(entered, str) else entered)
+    if e is None:
+        return False, f"輸入的負載質量 {entered!r} 讀不懂，拒絕執行"
+    p = float(payload_kg)
+    if abs(e - p) > tol_kg:
+        return False, f"教導器負載 {e:.3f} kg 與 PAYLOAD_KG = {p:.3f} kg 不符，拒絕執行（請先確認哪一個才對）"
+    return True, f"教導器負載 {e:.3f} kg = PAYLOAD_KG -> OK"
+
+
+def payload_tag(payload_kg):
+    """輸出資料夾名稱中的負載標記：1.30 kg → "p130"（單位 0.01 kg）。"""
+    return f"p{int(round(float(payload_kg) * 100)):03d}"
+
+
+def check_speed_fraction(fraction, min_fraction=SPEED_FRACTION_MIN):
+    """
+    教導器速度滑桿（RTDE target_speed_fraction，0～1）：滑桿會等比例縮小 URScript 的速度與加速度
+    （10/22 冷機定速因滑桿停在 52% 而作廢）。預設拒絕：讀不到（None、ur_rtde 沒有此方法）、
+    不是有限數值、低於 min_fraction，一律回傳 False。回傳 (ok, 說明)。
+    """
+    x = _finite_float(fraction)
+    if x is None:
+        return False, f"讀不到教導器速度滑桿（target_speed_fraction = {fraction!r}），拒絕執行"
+    msg = f"教導器速度滑桿 {100 * x:.1f}%（須 ≥ {100 * min_fraction:.1f}%）"
+    if x < min_fraction:
+        return False, msg + " -> 請把滑桿調回 100% 後重新執行"
+    return True, msg + " -> OK"
+
+
 # ============================================================
 # 第二部分：URScript 產生
 # ============================================================
@@ -451,6 +526,8 @@ class RtdeLogger:
         self.q0_min = self.q0_max = None
         self.extra_reads = {name: 0 for name, _ in EXTRA_SIGNALS}    # 各額外訊號成功讀取的列數
         self.extra_missing = []                                      # ur_rtde 沒有對應方法的訊號
+        self.last_speed_fraction = self.min_speed_fraction = None    # 教導器速度滑桿（target_speed_fraction）
+        self.speed_fraction_missing = 0                              # 讀不到滑桿的列數
         self.started_ok = threading.Event()
         self.error = None
 
@@ -473,6 +550,7 @@ class RtdeLogger:
         get_ts = getattr(rtde_r, "getTimestamp", None)
         extras = [(name, getattr(rtde_r, meth, None)) for name, meth in EXTRA_SIGNALS]
         self.extra_missing = [name for name, getter in extras if getter is None]
+        get_sf = getattr(rtde_r, "getTargetSpeedFraction", None)
         writer, last_ctrl_ts, t0_ctrl = None, None, None
         poll_interval = self.period / 5.0
         try:
@@ -517,6 +595,13 @@ class RtdeLogger:
                         self.extra_reads[name] += 1
                     for j in range(6):
                         row[f"{name}_{j}"] = vals[j]
+                sf = None
+                if get_sf is not None:
+                    try:
+                        sf = _finite_float(get_sf())
+                    except Exception:
+                        sf = None
+                row["target_speed_fraction"] = sf
                 if writer is None:
                     writer = csv.DictWriter(csv_file, fieldnames=list(row.keys()))
                     writer.writeheader()
@@ -527,6 +612,11 @@ class RtdeLogger:
                 self.last_q0, self.last_qd0, self.last_q_full = q[j], qd[j], list(q)
                 self.q0_min = q[j] if self.q0_min is None else min(self.q0_min, q[j])
                 self.q0_max = q[j] if self.q0_max is None else max(self.q0_max, q[j])
+                self.last_speed_fraction = sf
+                if sf is None:
+                    self.speed_fraction_missing += 1
+                else:
+                    self.min_speed_fraction = sf if self.min_speed_fraction is None else min(self.min_speed_fraction, sf)
                 self.started_ok.set()
                 if self.rows % 250 == 0:
                     csv_file.flush()
@@ -544,7 +634,17 @@ class RtdeLogger:
         lines.append("額外訊號（成功讀取列數）: " + "，".join(
             f"{name} {n}" + ("（ur_rtde 無此方法）" if name in self.extra_missing else "")
             for name, n in self.extra_reads.items()))
+        if self.min_speed_fraction is None:
+            lines.append("教導器速度滑桿：整段讀不到")
+        else:
+            lines.append(f"教導器速度滑桿（記錄中最低）: {100 * self.min_speed_fraction:.1f}%"
+                         + (f"，讀不到 {self.speed_fraction_missing} 列" if self.speed_fraction_missing else ""))
         return "\n".join(lines)
+
+    def speed_fraction_held(self, min_fraction=SPEED_FRACTION_MIN):
+        """整段記錄中滑桿都讀得到，且不低於 min_fraction。"""
+        return (self.rows > 0 and self.speed_fraction_missing == 0
+                and self.min_speed_fraction is not None and self.min_speed_fraction >= min_fraction)
 
 
 # ============================================================
@@ -923,6 +1023,7 @@ def main():
     print("=" * 70)
     print(f"方向: {'正轉 (+1)' if DIRECTION > 0 else '反轉 (-1)'}")
     print(f"姿態: {POSE}（J1~J5 期望 {list(POSES[POSE]['q_deg']) if POSE in POSES else '未知'}°）")
+    print(f"負載: PAYLOAD_KG = {PAYLOAD_KG}")
 
     conds, n_repeat = stage_config(TEST_STAGE)
     segs = plan_segments(conds, n_repeat, DIRECTION, V_CRUISE, T_MOD, SETTLE_TIME, RAMP_ACCEL, STOPJ_DECEL,
@@ -938,7 +1039,9 @@ def main():
     print("\n".join(report))
     speed_ok, speed_msg = check_flange_speed(POSE, conds, V_CRUISE)
     print(speed_msg)
-    if not (ok and speed_ok):
+    payload_ok, payload_msg = check_payload_setting(PAYLOAD_KG)
+    print(payload_msg + ("  [OK]" if payload_ok else "  [FAIL]"))
+    if not (ok and speed_ok and payload_ok):
         print("\n[中止] 安全檢查未通過。")
         return
 
@@ -962,20 +1065,28 @@ def main():
             return
     else:
         r = POSES[POSE]["r_flange_m"]
-        print(f"\n[注意] 姿態 {POSE}：J1~J5 須先以示教器擺到 {list(POSES[POSE]['q_deg'])}°（程式不會移動這五軸）。")
+        print(f"\n[注意] 姿態 {POSE}：J1~J5 須先以教導器擺到 {list(POSES[POSE]['q_deg'])}°（程式不會移動這五軸）。")
         print(f"       法蘭離 J0 軸約 {r:.2f} m（不含工具），J0 會掃過 {lo_plan:.1f}° 至 {hi_plan:.1f}°（含餘裕）。")
         print("       請確認此扇形範圍（加上工具與線材）沒有人員與物品；連上 RTDE 後會再以實際角度檢查 J1~J5。")
         if input(f"已確認，輸入 {POSE} 繼續：").strip() != POSE:
             print("已取消。")
             return
 
-    print(f"\n即將對 IP={ROBOT_IP} 送出軌跡，關節 J{JOINT_INDEX}，方向 {DIRECTION:+d}，姿態 {POSE}，共 {len(segs)} 段。")
+    print("\n[負載確認] 請看教導器上設定的負載質量（加減質量後必須先在教導器更新質量與重心）。")
+    entry_ok, entry_msg = check_payload_entry(PAYLOAD_KG, input("輸入教導器上的負載質量 [kg]："))
+    print(entry_msg)
+    if not entry_ok:
+        print("\n[中止] 負載確認未通過，未送出任何軌跡。")
+        return
+
+    print(f"\n即將對 IP={ROBOT_IP} 送出軌跡，關節 J{JOINT_INDEX}，方向 {DIRECTION:+d}，姿態 {POSE}，"
+          f"負載 {PAYLOAD_KG} kg，共 {len(segs)} 段。")
     print("*** 送出後 Ctrl+C 會送出 stopj，但最可靠的仍是緊急停止按鈕 ***")
     input("按 Enter 繼續，或 Ctrl+C 取消...")
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dir_label = "pos" if DIRECTION > 0 else "neg"
-    tag = f"{POSE.lower()}_{dir_label}_{TEST_STAGE.lower()}_{ts}"
+    tag = f"{POSE.lower()}_{payload_tag(PAYLOAD_KG)}_{dir_label}_{TEST_STAGE.lower()}_{ts}"
     session_dir = os.path.join(OUTPUT_DIR, f"velmod_{tag}")
     os.makedirs(session_dir, exist_ok=True)
     csv_path = os.path.join(session_dir, f"velmod_data_{tag}.csv")
@@ -1002,6 +1113,13 @@ def main():
     if not pos_ok:
         logger.stop()
         print("\n[中止] 起始位置檢查未通過，未送出任何軌跡，手臂未動作。")
+        return
+
+    sf_ok, sf_msg = check_speed_fraction(logger.last_speed_fraction)
+    print(f"\n[速度滑桿檢查] {sf_msg}")
+    if not sf_ok:
+        logger.stop()
+        print("\n[中止] 速度滑桿檢查未通過，未送出任何軌跡，手臂未動作。")
         return
 
     script = build_urscript(segs, DIRECTION, JOINT_INDEX, logger.last_q_full, V_CRUISE, RAMP_ACCEL,
@@ -1042,9 +1160,11 @@ def main():
         if q_lo < lo_plan or q_hi > hi_plan:
             measured.append("[警告] 實測範圍超出規劃範圍，請先查明原因再跑下一階段。")
         print("\n" + "\n".join(measured))
+    if not logger.speed_fraction_held():
+        print("\n[警告] 執行中教導器速度滑桿曾低於 100% 或讀不到（見摘要），這次的資料不可用。")
 
     with open(info_path, "w", encoding="utf-8") as f:
-        f.write(f"方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n")
+        f.write(f"方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n負載 PAYLOAD_KG: {PAYLOAD_KG} kg\n")
         f.write("\n".join(pose_lines) + "\n")
         f.write(f"條件 (Hz, rad/s): {conds}\n每個條件次數: {n_repeat}\n")
         f.write(f"巡航速度: {V_CRUISE}\n調變時間: {T_MOD}s\n定速時間: {SETTLE_TIME}s\n")
@@ -1057,7 +1177,7 @@ def main():
     print(f"\n[完成] 資料存至 {csv_path}")
     print(f"[完成] 摘要存至 {info_path}")
     if POSE != "DIAG":
-        print(f"\n[提醒] J0 已回 {END_J0_DEG:.0f}°，J1~J5 仍在 {POSE} 姿態；請以示教器移回診斷原點。")
+        print(f"\n[提醒] J0 已回 {END_J0_DEG:.0f}°，J1~J5 仍在 {POSE} 姿態；請以教導器移回診斷原點。")
     print("\n下一步：analyze_velocity_modulation(csv_path, JOINT_INDEX, KT_OUT, DIRECTION, CONDITIONS, V_CRUISE)")
 
 

@@ -24,7 +24,8 @@ BASE = r"D:\cluade_code\ur5\data_1022"   # 10/22 資料（各次 velmod_*、cons
 OUT = os.path.join(os.path.dirname(BASE), "analysis_1022")
 KT = vm.KT_OUT                           # 本研究的輸出端力矩常數 0.135 × 101 [N·m/A]
 COND = ["1 Hz", "2 Hz", "3 Hz", "2 Hz 小振幅"]
-NC = len(vm.CONDITIONS)
+CONDS = [(1.0, 0.06), (2.0, 0.06), (3.0, 0.06), (2.0, 0.03)]   # 10/22 執行的四個條件（程式之後新增的條件 5、6 當天沒跑）
+NC = len(CONDS)
 LOG = io.StringIO()
 
 
@@ -53,7 +54,7 @@ def run_list():
 def analyze(F, direction, kt=KT):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        r = vm.analyze_velocity_modulation(F, 0, kt, direction, vm.CONDITIONS, vm.V_CRUISE)
+        r = vm.analyze_velocity_modulation(F, 0, kt, direction, CONDS, vm.V_CRUISE)
     return r, buf.getvalue()
 
 

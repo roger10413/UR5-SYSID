@@ -15,6 +15,8 @@
 4. 摩擦指標與暖機完成判定（純函式）。
 5. main()：溫度上限未設定、RTDE 失敗、起始位置過遠時，都在送出前中止；QUICK 端對端會送出
    一批與一次結束定位，並產生自動命名的 CSV 與摘要檔。
+6. 教導器速度滑桿：不是 100%、讀不到（None、NaN、讀取丟例外、ur_rtde 沒有此方法）時在送出前中止；
+   第 1 批後被調低時，下一批不送出、改送結束定位，摘要記下最低值並警告摩擦指標可能無效。
 """
 
 import os
@@ -42,6 +44,7 @@ HOME_Q = [3.14159265, -1.57079633, 1.57079633, -1.57079633, -1.57079633, 0.0]
 
 class FakeRTDE:
     q = list(HOME_Q)
+    sf = 1.0                                          # 教導器速度滑桿（target_speed_fraction）
     def __init__(self, ip): pass
     def getTimestamp(self): return time.time()
     def getActualQ(self): return list(FakeRTDE.q)
@@ -49,6 +52,7 @@ class FakeRTDE:
     def getActualCurrent(self): return [0.0] * 6
     def getTargetQd(self): return [0.0] * 6
     def getJointTemperatures(self): return [30.0] * 6
+    def getTargetSpeedFraction(self): return FakeRTDE.sf
     def disconnect(self): pass
 
 
@@ -76,11 +80,13 @@ class Base(unittest.TestCase):
         socket.socket = no_network
         builtins.input = lambda *a, **k: "yes"
         FakeRTDE.q = list(HOME_Q)
+        FakeRTDE.sf = 1.0
 
     def tearDown(self):
         socket.socket = self._sock
         builtins.input = self._input
         FakeRTDE.q = list(HOME_Q)
+        FakeRTDE.sf = 1.0
 
 
 def urscript_indent_ok(text):
@@ -141,22 +147,36 @@ class TestPieces(Base):
         drifting = [dict(t_min=2 * k, temp=31.77, fwd=12.0 + 0.1 * k, rev=13.0) for k in range(1, 8)]
         self.assertFalse(m.is_warm(drifting, 14, **kw)[0], "摩擦指標仍在變不該判定完成")
 
+    def test_speed_fraction_check(self):
+        m = load("w_sf_unit")
+        self.assertTrue(m.check_speed_fraction(1.0)[0])
+        self.assertTrue(m.check_speed_fraction(0.999)[0])
+        for bad in (0.52, 0.99, 0.0, None, float("nan"), "abc", -1.0):
+            self.assertFalse(m.check_speed_fraction(bad)[0], repr(bad))
+
 
 class TestMain(Base):
     def _run(self, m):
-        sent = []
+        """回傳 (送出的腳本, {檔名: 內容})；stdout 存在 self.last_out。"""
+        sent, files = [], {}
         m.send_urscript = lambda ip, txt, *a, **k: sent.append(txt)
+        buf = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             m.OUTPUT_DIR = tmp
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(buf):
                 m.main()
-            files = [f for _, _, fs in os.walk(tmp) for f in fs]
+            for root, _, names in os.walk(tmp):
+                for n in names:
+                    with open(os.path.join(root, n), encoding="utf-8") as f:
+                        files[n] = f.read()
+        self.last_out = buf.getvalue()
         return sent, files
 
     def test_temp_limit_unset_aborts(self):
         m = load("w_m1")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG, m.TEMP_ABORT_C = 65, 300, None
         self.assertEqual(self._run(m)[0], [])
+        self.assertIn("安全檢查未通過", self.last_out)
 
     def test_rtde_failure_aborts(self):
         m = load("w_m2")
@@ -166,12 +186,51 @@ class TestMain(Base):
             def __init__(self, ip): raise ConnectionError("模擬 RTDE 連線失敗")
         sys.modules["rtde_receive"].RTDEReceiveInterface = Failing
         self.assertEqual(self._run(m)[0], [])
+        self.assertIn("RTDE 記錄未能啟動", self.last_out)
 
     def test_far_start_aborts(self):
         m = load("w_m3")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG, m.TEMP_ABORT_C = 65, 300, 50.0
         FakeRTDE.q = [math.radians(100.0)] + HOME_Q[1:]
         self.assertEqual(self._run(m)[0], [])
+        self.assertIn("起始位置檢查未通過", self.last_out)
+
+    def test_speed_fraction_aborts(self):
+        """教導器速度滑桿不是 100%、讀不到、NaN、讀取丟例外、ur_rtde 沒有此方法：都在送出前中止。"""
+        def raising(self):
+            raise RuntimeError("模擬讀取失敗")
+        no_method = type("NoSF", (), {k: v for k, v in vars(FakeRTDE).items() if k != "getTargetSpeedFraction"})
+        bad_read = type("BadSF", (FakeRTDE,), {"getTargetSpeedFraction": raising})
+        cases = [(0.52, FakeRTDE, "52.0%"), (0.99, FakeRTDE, "99.0%"), (None, FakeRTDE, "讀不到"),
+                 (float("nan"), FakeRTDE, "讀不到"), (1.0, bad_read, "讀不到"), (1.0, no_method, "讀不到")]
+        for k, (sf, cls, text) in enumerate(cases):
+            m = load(f"w_sf{k}")
+            m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG, m.TEMP_ABORT_C = 65, 300, 50.0
+            FakeRTDE.sf = sf
+            sys.modules["rtde_receive"].RTDEReceiveInterface = cls
+            self.assertEqual(self._run(m)[0], [], f"案例 {k}")
+            self.assertIn("速度滑桿檢查未通過", self.last_out, f"案例 {k}")
+            self.assertIn(text, self.last_out, f"案例 {k}")
+
+    def test_speed_fraction_drop_stops(self):
+        """FULL 第 1 批後滑桿被調低：第 2 批不送出，改送結束定位；摘要記下最低值並警告。"""
+        m = load("w_sf_drop")
+        m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG, m.TEMP_ABORT_C = 65, 300, 50.0
+        m.TEST_STAGE = "FULL"
+
+        def wait(logger, planned_s, **k):
+            FakeRTDE.sf = 0.5
+            time.sleep(0.3)                                   # 讓記錄執行緒記到調低後的值
+            return "done", planned_s, planned_s
+        m.wait_for_motion_complete = wait
+        sent, files = self._run(m)
+        self.assertEqual(len(sent), 2, "只送出第 1 批 + 結束定位")
+        self.assertTrue(sent[1].startswith("def j0_warmup_end():"))
+        self.assertIn("[停止] 第 2 批送出前", self.last_out)
+        self.assertIn("摩擦指標可能無效", self.last_out)
+        info = next(v for n, v in files.items() if n.startswith("warmup_info_full_"))
+        self.assertIn("結果: 停止（速度滑桿不是 100%）", info)
+        self.assertIn("教導器速度滑桿（記錄中最低）: 50.0%", info)
 
     def test_quick_end_to_end(self):
         m = load("w_m4")
@@ -183,7 +242,9 @@ class TestMain(Base):
         self.assertIn("while k < 2:", sent[0])
         self.assertTrue(sent[1].startswith("def j0_warmup_end():"))
         self.assertTrue(any(f.startswith("warmup_data_quick_") and f.endswith(".csv") for f in files))
-        self.assertTrue(any(f.startswith("warmup_info_quick_") and f.endswith(".txt") for f in files))
+        info = next(v for n, v in files.items() if n.startswith("warmup_info_quick_") and n.endswith(".txt"))
+        self.assertIn("教導器速度滑桿（記錄中最低）: 100.0%", info)
+        self.assertNotIn("摩擦指標可能無效", self.last_out)
 
 
 if __name__ == "__main__":

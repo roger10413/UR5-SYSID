@@ -14,8 +14,10 @@
 3. 安全檢查：J0 視窗設定時三個階段都通過；視窗未設定、速度超限時 FAIL。
 4. URScript：縮排規則、每段一個有次數上限的迴圈、正轉用 "<"、反轉用 ">"、只含 ASCII。
 5. main()：視窗未設定、RTDE 失敗、起始位置離第一段起點過遠時，都在送出軌跡前中止。
-6. 端對端：CSV 與摘要檔自動命名且不撞名。
+6. 端對端：CSV 與摘要檔自動命名且不撞名；CSV 每列記下教導器速度滑桿，摘要寫入最低值。
 7. 分析：用已知 B、Tc 加上鎖定角度的漣波與雜訊合成資料，analyze_angle_window 能找回答案。
+8. 教導器速度滑桿：不是 100%、讀不到（None、NaN、讀取丟例外、ur_rtde 沒有此方法）時在送出前中止；
+   執行中被調低時摘要記下最低值，並警告這次的資料不可用。
 """
 
 import os
@@ -44,6 +46,7 @@ HOME_Q = [3.14159265, -1.57079633, 1.57079633, -1.57079633, -1.57079633, 0.0]
 
 class FakeRTDE:
     q = list(HOME_Q)
+    sf = 1.0                                          # 教導器速度滑桿（target_speed_fraction）
     def __init__(self, ip): pass
     def getTimestamp(self): return time.time()
     def getActualQ(self): return list(FakeRTDE.q)
@@ -51,6 +54,7 @@ class FakeRTDE:
     def getActualCurrent(self): return [0.0] * 6
     def getTargetQd(self): return [0.0] * 6
     def getJointTemperatures(self): return [30.0] * 6
+    def getTargetSpeedFraction(self): return FakeRTDE.sf
     def disconnect(self): pass
 
 
@@ -86,11 +90,13 @@ class Base(unittest.TestCase):
         socket.socket = no_network
         builtins.input = lambda *a, **k: "yes"
         FakeRTDE.q = list(HOME_Q)
+        FakeRTDE.sf = 1.0
 
     def tearDown(self):
         socket.socket = self._sock
         builtins.input = self._input
         FakeRTDE.q = list(HOME_Q)
+        FakeRTDE.sf = 1.0
 
 
 def urscript_indent_ok(text):
@@ -179,17 +185,20 @@ class TestMain(Base):
     def _run(self, m, stage="QUICK", direction=+1):
         sent = []
         m.send_urscript = lambda *a, **k: sent.append(1)
+        buf = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             m.OUTPUT_DIR = tmp
             m.TEST_STAGE, m.DIRECTION = stage, direction
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(buf):
                 m.main()
+        self.last_out = buf.getvalue()
         return sent
 
     def test_window_unset_aborts(self):
         m = load("ang_main1")
         m.J0_SAFE_MIN_DEG = m.J0_SAFE_MAX_DEG = None
         self.assertEqual(self._run(m), [], "視窗未設定時不該送出任何軌跡")
+        self.assertIn("安全檢查未通過", self.last_out)
 
     def test_rtde_failure_aborts(self):
         m = load("ang_main2")
@@ -199,32 +208,91 @@ class TestMain(Base):
             def __init__(self, ip): raise ConnectionError("模擬 RTDE 連線失敗")
         sys.modules["rtde_receive"].RTDEReceiveInterface = Failing
         self.assertEqual(self._run(m), [], "RTDE 失敗時不該送出任何軌跡")
+        self.assertIn("RTDE 記錄未能啟動", self.last_out)
 
     def test_far_start_aborts(self):
         m = load("ang_main3")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
         FakeRTDE.q = [math.radians(100.0)] + HOME_Q[1:]       # J0 離窗口很遠
         self.assertEqual(self._run(m), [], "起始位置過遠時不該送出任何軌跡")
+        self.assertIn("起始位置檢查未通過", self.last_out)
+
+    def test_speed_fraction_aborts(self):
+        """教導器速度滑桿不是 100%、讀不到、NaN、讀取丟例外、ur_rtde 沒有此方法：都在送出前中止。"""
+        def raising(self):
+            raise RuntimeError("模擬讀取失敗")
+        no_method = type("NoSF", (), {k: v for k, v in vars(FakeRTDE).items() if k != "getTargetSpeedFraction"})
+        bad_read = type("BadSF", (FakeRTDE,), {"getTargetSpeedFraction": raising})
+        cases = [(0.52, FakeRTDE, "52.0%"), (0.99, FakeRTDE, "99.0%"), (None, FakeRTDE, "讀不到"),
+                 (float("nan"), FakeRTDE, "讀不到"), (1.0, bad_read, "讀不到"), (1.0, no_method, "讀不到")]
+        for k, (sf, cls, text) in enumerate(cases):
+            m = load(f"ang_sf{k}")
+            m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+            FakeRTDE.sf = sf
+            sys.modules["rtde_receive"].RTDEReceiveInterface = cls
+            self.assertEqual(self._run(m), [], f"案例 {k}")
+            self.assertIn("速度滑桿檢查未通過", self.last_out, f"案例 {k}")
+            self.assertIn(text, self.last_out, f"案例 {k}")
+
+    def test_speed_fraction_check(self):
+        m = load("ang_sf_unit")
+        self.assertTrue(m.check_speed_fraction(1.0)[0])
+        self.assertTrue(m.check_speed_fraction(0.999)[0])
+        for bad in (0.52, 0.99, 0.0, None, float("nan"), "abc", -1.0):
+            self.assertFalse(m.check_speed_fraction(bad)[0], repr(bad))
+
+    def _run_done(self, m, directions=(+1,), wait=None):
+        """送出的腳本照收、運動視為完成；回傳 (送出次數, {檔名: 內容}, stdout)。"""
+        sent, files = [], {}
+        m.send_urscript = lambda *a, **k: sent.append(1)
+        m.wait_for_motion_complete = wait or (lambda logger, planned_s, **k: ("done", planned_s, planned_s))
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            m.OUTPUT_DIR = tmp
+            for d in directions:
+                m.TEST_STAGE, m.DIRECTION = "QUICK", d
+                with contextlib.redirect_stdout(out):
+                    m.main()
+                if len(directions) > 1:
+                    time.sleep(1.1)
+            for root, _, names in os.walk(tmp):
+                for n in names:
+                    with open(os.path.join(root, n), encoding="utf-8") as f:
+                        files[n] = f.read()
+        return len(sent), files, out.getvalue()
 
     def test_autoname_end_to_end(self):
         m = load("ang_main4")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
-        m.send_urscript = lambda *a, **k: None
-        m.wait_for_motion_complete = lambda logger, planned_s, **k: ("done", planned_s, planned_s)
-        names = set()
-        with tempfile.TemporaryDirectory() as tmp:
-            m.OUTPUT_DIR = tmp
-            for d in (+1, -1):
-                m.TEST_STAGE, m.DIRECTION = "QUICK", d
-                with contextlib.redirect_stdout(io.StringIO()):
-                    m.main()
-                time.sleep(1.1)
-            for _, _, files in os.walk(tmp):
-                names.update(files)
-        csvs = sorted(n for n in names if n.endswith(".csv"))
+        n_sent, files, out = self._run_done(m, directions=(+1, -1))
+        self.assertEqual(n_sent, 2)
+        csvs = sorted(n for n in files if n.endswith(".csv"))
         self.assertEqual(len(csvs), 2, csvs)
         self.assertTrue(any("_pos_quick_" in n for n in csvs))
         self.assertTrue(any("_neg_quick_" in n for n in csvs))
+        infos = [v for n, v in files.items() if n.startswith("constvel_angle_info_")]
+        self.assertEqual(len(infos), 2)
+        for v in infos:
+            self.assertIn("教導器速度滑桿（記錄中最低）: 100.0%", v)
+        rows = list(csv.DictReader(io.StringIO(files[csvs[0]])))
+        self.assertGreater(len(rows), 0)
+        self.assertTrue(all(float(r["target_speed_fraction"]) == 1.0 for r in rows), "每列記下教導器速度滑桿")
+        self.assertNotIn("這次的資料不可用", out)
+
+    def test_speed_fraction_drop_warns(self):
+        """執行中滑桿被調低：摘要記下最低值，結束時警告這次的資料不可用。"""
+        m = load("ang_sf_drop")
+        m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+
+        def wait(logger, planned_s, **k):
+            FakeRTDE.sf = 0.5
+            time.sleep(0.3)                                   # 讓記錄執行緒記到調低後的值
+            return "done", planned_s, planned_s
+        n_sent, files, out = self._run_done(m, wait=wait)
+        self.assertEqual(n_sent, 1)
+        self.assertIn("這次的資料不可用", out)
+        info = next(v for n, v in files.items() if n.startswith("constvel_angle_info_"))
+        self.assertIn("教導器速度滑桿（記錄中最低）: 50.0%", info)
 
 
 class TestAnalysis(unittest.TestCase):

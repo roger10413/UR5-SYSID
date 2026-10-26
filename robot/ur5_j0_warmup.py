@@ -24,6 +24,8 @@ UR5 J0 暖機程式（獨立執行，暖機完成後再執行 ur5_const_velocity
 2. 【安全檢查預設拒絕】J0_SAFE_MIN_DEG / J0_SAFE_MAX_DEG / TEMP_ABORT_C 未設定一律中止。
 3. 【溫度上限】任一批結束時 J0 溫度 ≥ TEMP_ABORT_C 就停止，不再送下一批。
 4. 【Ctrl+C】會送 stopj；最可靠的仍是緊急停止按鈕。
+5. 【教導器速度滑桿】（新增，尚未審查）連上 RTDE 後讀 target_speed_fraction，不是 100% 或讀不到一律中止；
+   之後每批送出前再檢查一次，不是 100% 就停止暖機並回 END_DEG（10/22 滑桿停在 52%，前 6 批摩擦指標都是 NaN）。
 """
 
 import csv
@@ -78,6 +80,7 @@ QD_MAX = 0.30
 QDD_CHECK_LIMIT = 3.0
 SAFETY_MARGIN_DEG = 2.0
 MAX_INITIAL_MOVE_DEG = 40.0
+SPEED_FRACTION_MIN = 0.999    # 教導器速度滑桿（RTDE target_speed_fraction，0～1）的下限
 
 SAMPLE_HZ = 125.0
 KT_OUT = 101 * 0.1350
@@ -156,6 +159,30 @@ def check_start_position(q0_deg, first_target_deg, max_move_deg, safe_min_deg, s
         return False, msg + " -> 目前角度在視窗外"
     if move > max_move_deg:
         return False, msg + " -> 第一次 movej 距離過大"
+    return True, msg + " -> OK"
+
+
+def _finite_float(x):
+    """轉成有限浮點數；None、無法轉換、NaN、無窮大時回傳 None。"""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def check_speed_fraction(fraction, min_fraction=SPEED_FRACTION_MIN):
+    """
+    教導器速度滑桿（RTDE target_speed_fraction，0～1）：滑桿會等比例縮小 URScript 的速度與加速度，
+    巡航速度到不了 WARMUP_VEL，摩擦指標變成 NaN。預設拒絕：讀不到（None、ur_rtde 沒有此方法）、
+    不是有限數值、低於 min_fraction，一律回傳 False。回傳 (ok, 說明)。
+    """
+    x = _finite_float(fraction)
+    if x is None:
+        return False, f"讀不到教導器速度滑桿（target_speed_fraction = {fraction!r}），拒絕執行"
+    msg = f"教導器速度滑桿 {100 * x:.1f}%（須 ≥ {100 * min_fraction:.1f}%）"
+    if x < min_fraction:
+        return False, msg + " -> 請把滑桿調回 100% 後重新執行"
     return True, msg + " -> OK"
 
 
@@ -250,6 +277,8 @@ class RtdeLogger:
         self.last_q0 = self.last_qd0 = self.last_q_full = None
         self.q0_min = self.q0_max = None
         self.buf_t, self.buf_qd, self.buf_cur, self.buf_temp = [], [], [], []
+        self.last_speed_fraction = self.min_speed_fraction = None    # 教導器速度滑桿（target_speed_fraction）
+        self.speed_fraction_missing = 0                              # 讀不到滑桿的列數
         self.started_ok = threading.Event()
         self.error = None
 
@@ -279,6 +308,7 @@ class RtdeLogger:
             self.error = e
             return
         get_ts = getattr(rtde_r, "getTimestamp", None)
+        get_sf = getattr(rtde_r, "getTargetSpeedFraction", None)
         writer, last_ctrl_ts, t0_ctrl = None, None, None
         poll_interval = self.period / 5.0
         try:
@@ -310,6 +340,13 @@ class RtdeLogger:
                     row[f"actual_current_{j}"] = i[j]
                     row[f"target_qd_{j}"] = tqd[j]
                     row[f"joint_temp_{j}"] = temps[j]
+                sf = None
+                if get_sf is not None:
+                    try:
+                        sf = _finite_float(get_sf())
+                    except Exception:
+                        sf = None
+                row["target_speed_fraction"] = sf
                 if writer is None:
                     writer = csv.DictWriter(csv_file, fieldnames=list(row.keys()))
                     writer.writeheader()
@@ -323,6 +360,11 @@ class RtdeLogger:
                 self.last_q0, self.last_qd0, self.last_q_full = q[j], qd[j], list(q)
                 self.q0_min = q[j] if self.q0_min is None else min(self.q0_min, q[j])
                 self.q0_max = q[j] if self.q0_max is None else max(self.q0_max, q[j])
+                self.last_speed_fraction = sf
+                if sf is None:
+                    self.speed_fraction_missing += 1
+                else:
+                    self.min_speed_fraction = sf if self.min_speed_fraction is None else min(self.min_speed_fraction, sf)
                 self.started_ok.set()
                 if self.rows % 250 == 0:
                     csv_file.flush()
@@ -337,7 +379,17 @@ class RtdeLogger:
         if len(self.ctrl_times) >= 3:
             d = [b - a for a, b in zip(self.ctrl_times[:-1], self.ctrl_times[1:])]
             lines.append(f"平均間隔 : {statistics.fmean(d)*1000:.4f} ms, std {statistics.pstdev(d)*1000:.4f} ms")
+        if self.min_speed_fraction is None:
+            lines.append("教導器速度滑桿：整段讀不到")
+        else:
+            lines.append(f"教導器速度滑桿（記錄中最低）: {100 * self.min_speed_fraction:.1f}%"
+                         + (f"，讀不到 {self.speed_fraction_missing} 列" if self.speed_fraction_missing else ""))
         return "\n".join(lines)
+
+    def speed_fraction_held(self, min_fraction=SPEED_FRACTION_MIN):
+        """整段記錄中滑桿都讀得到，且不低於 min_fraction。"""
+        return (self.rows > 0 and self.speed_fraction_missing == 0
+                and self.min_speed_fraction is not None and self.min_speed_fraction >= min_fraction)
 
 
 # ============================================================
@@ -446,6 +498,13 @@ def main():
         print("\n[中止] 起始位置檢查未通過，未送出任何軌跡。")
         return
 
+    sf_ok, sf_msg = check_speed_fraction(logger.last_speed_fraction)
+    print(f"\n[速度滑桿檢查] {sf_msg}")
+    if not sf_ok:
+        logger.stop()
+        print("\n[中止] 速度滑桿檢查未通過，未送出任何軌跡。")
+        return
+
     q_others = logger.last_q_full
     block_text = build_block_urscript(n_cyc, WARMUP_LO_DEG, WARMUP_HI_DEG, q_others, JOINT_INDEX,
                                       WARMUP_VEL, WARMUP_ACCEL)
@@ -455,6 +514,12 @@ def main():
     print(f"\n{'批':>3}{'累計[min]':>10}{'溫度[°C]':>10}{'正轉|tau|':>11}{'反轉|tau|':>11}  判定")
     try:
         for b in range(max_blocks):
+            if b > 0:                                   # 第 1 批前已檢查；之後每批送出前再檢查
+                sf_ok, sf_msg = check_speed_fraction(logger.last_speed_fraction)
+                if not sf_ok:
+                    print(f"\n[停止] 第 {b+1} 批送出前：{sf_msg}")
+                    result = "停止（速度滑桿不是 100%）"
+                    break
             i0 = logger.n_buffered()
             send_urscript(ROBOT_IP, block_text)
             status, _, _ = wait_for_motion_complete(logger, t_block_est)
@@ -505,6 +570,8 @@ def main():
             fi.write(logger.summary() + "\n")
 
     print(f"\n[結果] {result}")
+    if not logger.speed_fraction_held():
+        print("[警告] 暖機中教導器速度滑桿曾低於 100% 或讀不到（見摘要），摩擦指標可能無效。")
     print(f"[完成] 資料存至 {csv_path}")
     print(f"[完成] 摘要存至 {info_path}")
     print("接著請直接執行 ur5_const_velocity_angle_ident.py（避免間隔過久又變冷）。")

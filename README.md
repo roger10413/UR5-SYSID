@@ -10,7 +10,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 
 - **定速法**：單一方向、穩態（qdd ≈ 0），多個定速值做線性回歸 → `B`、`Tc`
 - **定加速度法**：同一速度下「加速段 − 減速段」消去摩擦 → `J`。10/13 實測減速段摩擦比加速段多一個與加速度無關的常數，故以多個加速度檔做含截距回歸（斜率 = `J`）
-- **速度調變法**：巡航速度上疊加正弦速度（速度不歸零、不反向），力矩中與加速度同相的成分 → `J`，與速度同相的成分 → 局部摩擦斜率；以 4 種頻率、振幅檢查 `J` 是否隨頻率或振幅改變。可改在手臂外伸姿態（`POSE = "EXT45"`）執行，比較兩個姿態的 `J`；並記錄控制器的 `target_moment`，得到控制器模型的慣量 `J_model` 作對照
+- **速度調變法**：巡航速度上疊加正弦速度（速度不歸零、不反向），力矩中與加速度同相的成分 → `J`，與速度同相的成分 → 局部摩擦斜率；以 6 種頻率、振幅檢查 `J` 是否隨頻率或振幅改變（10/22 跑前 4 種）。可改在手臂外伸姿態（`POSE = "EXT45"`）執行，比較兩個姿態的 `J`；並記錄控制器的 `target_moment`，得到控制器模型的慣量 `J_model` 作對照。末端加已知質量前後各跑一次時，兩次 `J` 的差應等於 m·r²（r 為質量塊重心離 J0 軸的距離），可直接檢查力矩換算比例
 
 本 repo 只含程式與文件，不含真機量測資料。
 
@@ -19,8 +19,10 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 `robot/` 內的腳本**會透過 URScript（port 30002）直接驅動真實機械臂**。
 
 - `ur5_const_velocity_angle_ident.py`、`ur5_j0_warmup.py`、`ur5_const_accel_ident_v3.py` 已於 2026/10/13 上機；之後的修改（見 `docs/` 各規劃第 7 節）**尚未經安全審查**。
-- `ur5_velocity_modulation_ident.py`（2026/10/19 新增）已通過安全審查（審查版本 commit `72591a7`），2026/10/22 上機（`DIAG`、`EXT45` 各 FULL 正、反轉）；新的條件或姿態仍請依 `TEST_STAGE` = QUICK → MID → FULL 執行。
-  - 姿態 `POSE` 預設 `DIAG`（診斷原點）。`EXT45`（J1、J2 = −45°、45°，法蘭離 J0 軸約 0.80 m）時程式**不移動 J1~J5**：須先以示教器擺好、確認 J0 掃過的扇形範圍淨空並輸入姿態名稱；連上 RTDE 後以實際角度檢查 J1~J5（±0.5°），不符或姿態名稱未知即中止。結束後 J1~J5 仍在外伸姿態，請以示教器移回。
+- `ur5_velocity_modulation_ident.py`（2026/10/19 新增）已通過安全審查（審查版本 commit `72591a7`），2026/10/22 上機（前 4 個條件，`DIAG`、`EXT45` 各 FULL 正、反轉）。之後新增的條件 5、6、負載確認、教導器速度滑桿檢查**尚未經安全審查**；新的條件或姿態仍請依 `TEST_STAGE` = QUICK → MID → FULL 執行。
+  - 姿態 `POSE` 預設 `DIAG`（診斷原點）。`EXT45`（J1、J2 = −45°、45°，法蘭離 J0 軸約 0.80 m）時程式**不移動 J1~J5**：須先以教導器擺好、確認 J0 掃過的扇形範圍淨空並輸入姿態名稱；連上 RTDE 後以實際角度檢查 J1~J5（±0.5°），不符或姿態名稱未知即中止。結束後 J1~J5 仍在外伸姿態，請以教導器移回。
+  - 負載 `PAYLOAD_KG`（新增，尚未審查）：未設定（`None`）或不是 ≥ 0 的數值即中止；送出前要輸入教導器上設定的負載質量，與 `PAYLOAD_KG` 相差超過 0.005 kg 即中止。資料夾名稱含負載標記（1.30 kg → `p130`）。加減質量後必須先在教導器更新負載質量與重心。
+- 教導器速度滑桿（新增，尚未審查，五支上機程式都有）：連上 RTDE 後讀 `target_speed_fraction`，不是 100% 或讀不到即中止（10/22 冷機定速因滑桿停在 52% 而作廢）；暖機每批送出前再檢查一次。執行中的值逐列寫進 CSV（`target_speed_fraction` 欄），最低值寫進摘要，低於 100% 時結束後警告這次的資料不可用。
 - 在能連到機台的電腦上，請勿直接執行主程式；離線檢查請只用 `py_compile` 或 `tests/`（測試會封鎖網路並使用假的 RTDE）。
 - 執行前務必確認 `ROBOT_IP`、J0 安全視窗（`J0_SAFE_MIN_DEG` / `J0_SAFE_MAX_DEG`，未設定時程式會中止）、手臂周圍淨空，並有人在緊急停止按鈕旁。
 - 正轉、反轉分開執行，每個方向結束後人工確認。
@@ -33,7 +35,7 @@ robot/                                   上機腳本（會送指令給機械臂
   ur5_j0_warmup.py                       暖機：J0 來回轉動，溫度與摩擦指標穩定後自動結束
   ur5_const_accel_ident_v3.py            定加速度 v3：三角形速度（定速段 0）＋起始角錯開 1/20 馬達圈，並含離線分析函式
   ur5_const_accel_ident_v3_trapezoid.py  定加速度 v3 梯形對照版：只改定速段為 4 個馬達圈與輸出前綴 constaccel_v3trap_
-  ur5_velocity_modulation_ident.py       速度調變實驗：巡航 0.12 rad/s 上疊加正弦（4 種頻率、振幅 × 7 次，起點錯開 1/7 馬達圈），並含離線分析函式
+  ur5_velocity_modulation_ident.py       速度調變實驗：巡航 0.12 rad/s 上疊加正弦（6 種頻率、振幅 × 7 次，起點錯開 1/7 馬達圈），並含離線分析函式
   ur5_home_pose.py                       診斷原點姿態檢查（預設只檢查、不移動）
 tests/                                   離線測試（假 RTDE、封鎖網路）
 docs/
@@ -46,6 +48,33 @@ matlab/
   constvel/                              定速法分析與共用函式
   analysis_1007/                         定速重複實驗與定加速度（v2）分析
 ```
+
+## J0 收尾實驗（下一次上機）
+
+目的：確認實測 `J` 的比例（已知質量）、`J` 隨加速度振幅變化的形式（條件 5）、10/22 的 3 Hz `J` 偏高來自頻率還是振幅（條件 6），並與 10/22 比較隔日重複性。換軸前先做完這一次。
+
+執行前：
+
+- 新增的負載確認、速度滑桿檢查與條件 5、6 尚未審查，審查通過後再上機。
+- 教導器速度滑桿調到 100%（程式也會檢查）。
+- 秤夾爪的實際質量並記錄；教導器負載先維持 10/22 的設定（1.30 kg），方便與 10/22 比較。
+- 準備約 2 kg 的質量塊並秤重，要能牢固固定在工具軸線上（不可只靠夾爪夾持）。夾爪加質量塊約 3.3 kg，低於 UR5 額定負載 5 kg。
+
+順序（每一列正轉、反轉分開執行，每個方向結束後人工確認）：
+
+| # | 姿態 | 法蘭負載（`PAYLOAD_KG`） | 程式 | 用途 |
+|---|------|------|------|------|
+| 1 | DIAG | 夾爪（—） | `ur5_j0_warmup.py` FULL | 暖機 |
+| 2 | DIAG | 夾爪（—） | `ur5_const_velocity_angle_ident.py` FULL | 同日 `B`、`Tc` |
+| 3 | DIAG | 夾爪（1.3） | `ur5_velocity_modulation_ident.py` QUICK、MID（+1），再 FULL | 條件 5、6 第一次上機；FULL 與 10/22 DIAG 比較重複性 |
+| 4 | DIAG | 夾爪 + 質量塊（3.3） | 同上 QUICK（+1），再 FULL | 與 #3 的 `J` 差應為 m·r²（r ≈ 0.50 m） |
+| 5 | EXT45 | 夾爪 + 質量塊（3.3） | 同上 FULL | — |
+| 6 | EXT45 | 夾爪（1.3） | 同上 FULL | 與 #5 的 `J` 差應為 m·r²（r ≈ 0.79 m）；與 #3 比較兩姿態差 |
+
+- 加、拆質量塊後，先在教導器更新負載質量與重心，再改 `PAYLOAD_KG`；程式會要求輸入教導器上的負載質量，不符即中止。
+- #5 前以教導器把 J1~J5 擺到 EXT45，#6 結束後移回診斷原點（程式不動 J1~J5）。
+- 加減質量的兩次在時間上相鄰（#3 與 #4、#5 與 #6），溫度變化對差值的影響較小。
+- 速度調變 FULL 每個方向約 8.6 分鐘；全部約 2.5～3 小時（含暖機與換裝）。
 
 ## 離線測試
 
@@ -64,6 +93,7 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 - 每個條件分開回歸：`J`、`B_local` ± 標準差（考慮段內殘差自相關）、實測加速度振幅、追隨增益與延遲；並以不同模型寫法（無漣波項、只取主要諧波、無 v²、行程項改為共用曲線、無行程項）重算 `J`。
 - 跨條件：`J` 加權平均與卡方（各條件是否一致）、`J` 對 1/A 回歸（減速時摩擦較大時 `J` 會隨振幅變化）、`B_local` 對 ω² 回歸（電流相對編碼器的延遲）。
 - 每個條件至少要 2 段才回歸，QUICK、MID 的資料只列出各段的頻率、振幅與追隨情形。
+- 條件以擬合的頻率、振幅辨認，`vm.CONDITIONS`（6 個條件）也可分析 10/22 的資料（只有前 4 個條件），資料中沒有的條件會略過。
 - CSV 有 `target_moment`、`target_qdd` 欄位時，另以 `target_moment` 對 `target_qdd`、`target_qd` 回歸，得到控制器模型在該姿態的 J0 慣量 `J_model`（目標值沒有量測雜訊，QUICK 也可算）。`J ÷ J_model` 不是 1 時，可能是 `Kt` 不準，也可能是控制器模型與實際不同，須比較多個姿態才能分開。
 
 ## Python 分析（`analysis/1013/`）
@@ -89,7 +119,7 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 
 需要 numpy、matplotlib。資料路徑寫在 `velmod_1022.py` 的 `BASE`（內含各次 `velmod_*`、`constvel_angle_*`、`warmup_*` 子資料夾），結果存到 `BASE` 的上一層 `analysis_1022/`。執行時封鎖網路。
 
-- `velmod_1022.py`：速度調變 5 次（DIAG 正、反轉與重跑，EXT45 正、反轉）的各條件 `J`；把電流換成 `target_moment` 以同一套分析重算（檢查分析流程）；各姿態合併、`J` 對加速度振幅（`J∞ + k/A` 與直線兩種寫法）、兩姿態差 `ΔJ` 與控制器模型比較；控制器的力矩換電流比值（`target_current` 對 `target_moment` 回歸）與 J1 靜止電流；同日定速的實際速度比例與暖機各批結果。
+- `velmod_1022.py`：速度調變 5 次（DIAG 正、反轉與重跑，EXT45 正、反轉）的各條件 `J`（固定用 10/22 的 4 個條件 `CONDS`）；把電流換成 `target_moment` 以同一套分析重算（檢查分析流程）；各姿態合併、`J` 對加速度振幅（`J∞ + k/A` 與直線兩種寫法）、兩姿態差 `ΔJ` 與控制器模型比較；控制器的力矩換電流比值（`target_current` 對 `target_moment` 回歸）與 J1 靜止電流；同日定速的實際速度比例與暖機各批結果。
 - `report_figs_1022.py`：報告圖（`J` 對加速度振幅；實測 `J` 與 `J_model`、`ΔJ`）。
 - 執行順序：`velmod_1022.py` → `report_figs_1022.py`。
 
@@ -101,7 +131,7 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 - `sim_realistic_constvel.m`：以實測運動與漣波建立的蒙地卡羅模擬，檢驗算法偏差。
 - `matlab/analysis_1007/` 的程式會自動加入 `../constvel` 路徑；資料路徑寫在各檔開頭（`base`、`file`），請改成自己的資料夾。
 
-CSV 欄位（RTDE 125 Hz 記錄）：`timestamp`，以及各關節 `actual_q_k`、`actual_qd_k`、`actual_current_k`、`target_qd_k`、`joint_temp_k`（k = 0～5）。速度調變實驗另記錄 `target_qdd_k`、`target_moment_k`、`target_current_k`、`joint_control_output_k`（控制器或 ur_rtde 不支援時留空）。
+CSV 欄位（RTDE 125 Hz 記錄）：`timestamp`，以及各關節 `actual_q_k`、`actual_qd_k`、`actual_current_k`、`target_qd_k`、`joint_temp_k`（k = 0～5）。速度調變實驗另記錄 `target_qdd_k`、`target_moment_k`、`target_current_k`、`joint_control_output_k`（控制器或 ur_rtde 不支援時留空）。2026/10/26 起五支上機程式都另記錄 `target_speed_fraction`（教導器速度滑桿，0～1；讀不到時留空）。
 
 ## 備註
 

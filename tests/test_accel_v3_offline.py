@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-定加速度 v3（ur5_const_accel_ident_v3.py）的離線測試。
+定加速度 v3（ur5_const_accel_ident_v3.py）與梯形對照版（ur5_const_accel_ident_v3_trapezoid.py）的離線測試。
 
 執行：  python -m unittest discover -s tests -v
 
@@ -17,6 +17,9 @@
    「起始角錯開」比「每次同一起點」的 J 誤差小；換階段後力矩有延遲時，跳過前 40 ms 可去除偏差；
    減速段摩擦比加速段多一個常數時（10/13 實測現象），含截距回歸仍找回 J，且截距被標示為顯著。
 6. 起點固定 180°：目前 J0 在 170° 時第一個 movej 到 180°；離起點超過 40° 時中止、不送出。
+7. 教導器速度滑桿（兩個版本）：不是 100%、讀不到（None、NaN、讀取丟例外、ur_rtde 沒有此方法）時
+   在送出前中止；CSV 每列記下滑桿，摘要寫入最低值；執行中被調低時警告這次的資料不可用。
+8. 梯形版：與三角形版逐行比對，只差開頭說明、HOLD_MOTOR_REVS = 4、輸出前綴 constaccel_v3trap_。
 """
 
 import os
@@ -32,6 +35,7 @@ import unittest
 import py_compile
 import importlib.util
 import contextlib
+import difflib
 import io
 
 import numpy as np
@@ -39,11 +43,14 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROBOT = os.path.join(ROOT, "robot") if os.path.isdir(os.path.join(ROOT, "robot")) else ROOT
 V3 = os.path.join(ROBOT, "ur5_const_accel_ident_v3.py")
+TRAP = os.path.join(ROBOT, "ur5_const_accel_ident_v3_trapezoid.py")
+PREFIX = {V3: "constaccel_v3_", TRAP: "constaccel_v3trap_"}
 
 HOME_Q = [3.14159265, -1.57079633, 1.57079633, -1.57079633, -1.57079633, 0.0]
 
 
 class FakeRTDE:
+    sf = 1.0                                          # 教導器速度滑桿（target_speed_fraction）
     def __init__(self, ip): pass
     def getTimestamp(self): return time.time()
     def getActualQ(self): return list(HOME_Q)
@@ -51,16 +58,17 @@ class FakeRTDE:
     def getActualCurrent(self): return [0.0] * 6
     def getTargetQd(self): return [0.0] * 6
     def getJointTemperatures(self): return [30.0] * 6
+    def getTargetSpeedFraction(self): return FakeRTDE.sf
     def disconnect(self): pass
 
 
-def load(name):
+def load(name, path=V3):
     fake = types.ModuleType("rtde_receive")
     fake.RTDEReceiveInterface = FakeRTDE
     sys.modules["rtde_receive"] = fake
     if ROBOT not in sys.path:
         sys.path.insert(0, ROBOT)
-    spec = importlib.util.spec_from_file_location(name, V3)
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     mod.home_pose = None
@@ -77,10 +85,12 @@ class Base(unittest.TestCase):
         self._input = builtins.input
         socket.socket = no_network
         builtins.input = lambda *a, **k: "yes"
+        FakeRTDE.sf = 1.0
 
     def tearDown(self):
         socket.socket = self._sock
         builtins.input = self._input
+        FakeRTDE.sf = 1.0
 
 
 def urscript_indent_ok(text):
@@ -91,6 +101,22 @@ def urscript_indent_ok(text):
 class TestPlan(Base):
     def test_compile(self):
         py_compile.compile(V3, doraise=True)
+        py_compile.compile(TRAP, doraise=True)
+
+    def test_trapezoid_matches_v3(self):
+        """梯形版只差開頭說明、HOLD_MOTOR_REVS、輸出前綴；其餘（含所有安全檢查）逐行相同。"""
+        with open(V3, encoding="utf-8") as f:
+            a = f.read().splitlines()
+        with open(TRAP, encoding="utf-8") as f:
+            b = f.read().splitlines()
+        sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal" or (i2 <= 6 and j2 <= 12):          # 開頭說明（梯形版多 6 行）
+                continue
+            for line in a[i1:i2] + b[j1:j2]:
+                self.assertTrue(line.startswith("HOLD_MOTOR_REVS = ") or "constaccel_v3" in line, line)
+        self.assertEqual(load("v3_hold", V3).HOLD_MOTOR_REVS, 0)
+        self.assertEqual(load("trap_hold", TRAP).HOLD_MOTOR_REVS, 4)
 
     def test_safety_and_offsets(self):
         m = load("v3_safe")
@@ -178,16 +204,19 @@ class TestMain(Base):
     def _run(self, m, stage="QUICK", d=+1):
         sent = []
         m.send_urscript = lambda *a, **k: sent.append(1)
+        buf = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             m.OUTPUT_DIR, m.TEST_STAGE, m.DIRECTION = tmp, stage, d
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(buf):
                 m.main()
+        self.last_out = buf.getvalue()
         return sent
 
     def test_window_unset_aborts(self):
         m = load("v3_m1")
         m.J0_SAFE_MIN_DEG = m.J0_SAFE_MAX_DEG = None
         self.assertEqual(self._run(m), [])
+        self.assertIn("起點檢查未通過", self.last_out)            # v3 的視窗在連上 RTDE 後的起點檢查擋下
 
     def test_rtde_failure_aborts(self):
         m = load("v3_m2")
@@ -197,26 +226,87 @@ class TestMain(Base):
             def __init__(self, ip): raise ConnectionError("模擬 RTDE 連線失敗")
         sys.modules["rtde_receive"].RTDEReceiveInterface = Failing
         self.assertEqual(self._run(m), [])
+        self.assertIn("RTDE 記錄未能啟動", self.last_out)
 
-    def test_autoname_end_to_end(self):
-        m = load("v3_m3")
-        m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
-        m.send_urscript = lambda *a, **k: None
-        m.wait_for_motion_complete = lambda logger, planned_s, **k: ("done", planned_s, planned_s)
-        names = set()
+    def test_speed_fraction_aborts(self):
+        """兩個版本：教導器速度滑桿不是 100%、讀不到、NaN、讀取丟例外、ur_rtde 沒有此方法時都在送出前中止。"""
+        def raising(self):
+            raise RuntimeError("模擬讀取失敗")
+        no_method = type("NoSF", (), {k: v for k, v in vars(FakeRTDE).items() if k != "getTargetSpeedFraction"})
+        bad_read = type("BadSF", (FakeRTDE,), {"getTargetSpeedFraction": raising})
+        cases = [(0.52, FakeRTDE, "52.0%"), (0.99, FakeRTDE, "99.0%"), (None, FakeRTDE, "讀不到"),
+                 (float("nan"), FakeRTDE, "讀不到"), (1.0, bad_read, "讀不到"), (1.0, no_method, "讀不到")]
+        for path in (V3, TRAP):
+            for k, (sf, cls, text) in enumerate(cases):
+                m = load(f"v3_sf{k}_{PREFIX[path]}", path)
+                m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+                FakeRTDE.sf = sf
+                sys.modules["rtde_receive"].RTDEReceiveInterface = cls
+                msg = f"{os.path.basename(path)} 案例 {k}"
+                self.assertEqual(self._run(m), [], msg)
+                self.assertIn("速度滑桿檢查未通過", self.last_out, msg)
+                self.assertIn(text, self.last_out, msg)
+        m = load("v3_sf_unit")
+        self.assertTrue(m.check_speed_fraction(0.999)[0])
+        self.assertFalse(m.check_speed_fraction("abc")[0])
+
+    def _run_done(self, m, directions=(+1,), wait=None):
+        """送出照收、運動視為完成；回傳 (送出次數, {檔名: 內容}, stdout)。"""
+        sent, files = [], {}
+        m.send_urscript = lambda *a, **k: sent.append(1)
+        m.wait_for_motion_complete = wait or (lambda logger, planned_s, **k: ("done", planned_s, planned_s))
+        out = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             m.OUTPUT_DIR = tmp
-            for d in (+1, -1):
+            for d in directions:
                 m.TEST_STAGE, m.DIRECTION = "QUICK", d
-                with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stdout(out):
                     m.main()
-                time.sleep(1.1)
-            for _, _, fs in os.walk(tmp):
-                names.update(fs)
-        csvs = [n for n in names if n.endswith(".csv")]
-        self.assertEqual(len(csvs), 2, csvs)
-        self.assertTrue(any("_pos_quick_" in n for n in csvs))
-        self.assertTrue(any("_neg_quick_" in n for n in csvs))
+                if len(directions) > 1:
+                    time.sleep(1.1)
+            for root, _, names in os.walk(tmp):
+                for n in names:
+                    with open(os.path.join(root, n), encoding="utf-8") as f:
+                        files[n] = f.read()
+        return len(sent), files, out.getvalue()
+
+    def test_autoname_end_to_end(self):
+        for path in (V3, TRAP):
+            m = load(f"v3_m3_{PREFIX[path]}", path)
+            m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+            n_sent, files, out = self._run_done(m, directions=(+1, -1))
+            msg = os.path.basename(path)
+            self.assertEqual(n_sent, 2, msg)
+            csvs = [n for n in files if n.endswith(".csv")]
+            self.assertEqual(len(csvs), 2, csvs)
+            self.assertTrue(all(n.startswith(PREFIX[path] + "data_") for n in csvs), csvs)
+            self.assertTrue(any("_pos_quick_" in n for n in csvs))
+            self.assertTrue(any("_neg_quick_" in n for n in csvs))
+            infos = [v for n, v in files.items() if n.startswith(PREFIX[path] + "info_")]
+            self.assertEqual(len(infos), 2, msg)
+            for v in infos:
+                self.assertIn("教導器速度滑桿（記錄中最低）: 100.0%", v)
+            rows = list(csv.DictReader(io.StringIO(files[csvs[0]])))
+            self.assertGreater(len(rows), 0)
+            self.assertTrue(all(float(r["target_speed_fraction"]) == 1.0 for r in rows), msg)
+            self.assertNotIn("這次的資料不可用", out, msg)
+
+    def test_speed_fraction_drop_warns(self):
+        """執行中滑桿被調低：摘要記下最低值，結束時警告這次的資料不可用。"""
+        def wait(logger, planned_s, **k):
+            FakeRTDE.sf = 0.5
+            time.sleep(0.3)                                   # 讓記錄執行緒記到調低後的值
+            return "done", planned_s, planned_s
+        for path in (V3, TRAP):
+            FakeRTDE.sf = 1.0
+            m = load(f"v3_drop_{PREFIX[path]}", path)
+            m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+            n_sent, files, out = self._run_done(m, wait=wait)
+            msg = os.path.basename(path)
+            self.assertEqual(n_sent, 1, msg)
+            self.assertIn("這次的資料不可用", out, msg)
+            info = next(v for n, v in files.items() if n.startswith(PREFIX[path] + "info_"))
+            self.assertIn("教導器速度滑桿（記錄中最低）: 50.0%", info)
 
 
 def synth_csv(m, path, d, J0, B0, TC0, use_offsets=True, seed=0, lag_s=0.0, dec_extra=0.0):

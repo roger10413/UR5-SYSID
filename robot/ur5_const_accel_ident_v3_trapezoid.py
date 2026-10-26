@@ -43,6 +43,8 @@ v3 的做法：
 5. 【IP 需要你自己再次確認】
 6. 【起點固定為 J0 = START_J0_DEG（180°）】程式先 movej 到起點（J1～J5 不動），目前 J0 離起點
    超過 MAX_INITIAL_MOVE_DEG 即中止；結束時 movej 回起點。不需再手動回原點。
+7. 【教導器速度滑桿】（新增，尚未審查）連上 RTDE 後讀 target_speed_fraction，不是 100% 或讀不到一律中止
+   （10/22 冷機定速因滑桿停在 52% 而作廢）；執行中的最低值寫進摘要，低於 100% 時會警告這次資料不可用。
 
 10/13 實測與本版修改
 -------------------
@@ -108,6 +110,7 @@ MOVEJ_RETURN_VEL = 0.15                # 同 v2
 EXCURSION_MARGIN_FACTOR = 1.5          # 控制器軌跡產生器的不確定係數；QUICK 實測後回填
 START_J0_DEG = 180.0                   # 起點 J0 絕對角度（= 診斷原點）；None = 以目前角度為起點（10/13 版行為）
 MAX_INITIAL_MOVE_DEG = 40.0            # 目前 J0 到起點的最大允許距離 [deg]，超過即中止
+SPEED_FRACTION_MIN = 0.999             # 教導器速度滑桿（RTDE target_speed_fraction，0～1）的下限
 
 SAMPLE_HZ = 125.0
 DT = 1.0 / SAMPLE_HZ
@@ -209,6 +212,30 @@ def check_initial_move(q_now_deg, start_deg, max_move_deg, safe_min_deg, safe_ma
         return False, msg + " -> 目前角度在 J0 視窗外"
     if dist > max_move_deg:
         return False, msg + " -> 距離超過上限，請先手動移近起點"
+    return True, msg + " -> OK"
+
+
+def _finite_float(x):
+    """轉成有限浮點數；None、無法轉換、NaN、無窮大時回傳 None。"""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def check_speed_fraction(fraction, min_fraction=SPEED_FRACTION_MIN):
+    """
+    教導器速度滑桿（RTDE target_speed_fraction，0～1）：滑桿會等比例縮小 URScript 的速度與加速度
+    （10/22 冷機定速因滑桿停在 52% 而作廢）。預設拒絕：讀不到（None、ur_rtde 沒有此方法）、
+    不是有限數值、低於 min_fraction，一律回傳 False。回傳 (ok, 說明)。
+    """
+    x = _finite_float(fraction)
+    if x is None:
+        return False, f"讀不到教導器速度滑桿（target_speed_fraction = {fraction!r}），拒絕執行"
+    msg = f"教導器速度滑桿 {100 * x:.1f}%（須 ≥ {100 * min_fraction:.1f}%）"
+    if x < min_fraction:
+        return False, msg + " -> 請把滑桿調回 100% 後重新執行"
     return True, msg + " -> OK"
 
 
@@ -328,6 +355,8 @@ class RtdeLogger:
         self.ctrl_times = []
         self.last_q0 = self.last_qd0 = self.last_q_full = None
         self.q0_min = self.q0_max = None
+        self.last_speed_fraction = self.min_speed_fraction = None    # 教導器速度滑桿（target_speed_fraction）
+        self.speed_fraction_missing = 0                              # 讀不到滑桿的列數
         self.started_ok = threading.Event()
         self.error = None
 
@@ -348,6 +377,7 @@ class RtdeLogger:
             self.error = e
             return
         get_ts = getattr(rtde_r, "getTimestamp", None)
+        get_sf = getattr(rtde_r, "getTargetSpeedFraction", None)
         writer, last_ctrl_ts, t0_ctrl = None, None, None
         poll_interval = self.period / 5.0
         try:
@@ -379,6 +409,13 @@ class RtdeLogger:
                     row[f"actual_current_{j}"] = i[j]
                     row[f"target_qd_{j}"] = tqd[j]
                     row[f"joint_temp_{j}"] = temps[j]
+                sf = None
+                if get_sf is not None:
+                    try:
+                        sf = _finite_float(get_sf())
+                    except Exception:
+                        sf = None
+                row["target_speed_fraction"] = sf
                 if writer is None:
                     writer = csv.DictWriter(csv_file, fieldnames=list(row.keys()))
                     writer.writeheader()
@@ -389,6 +426,11 @@ class RtdeLogger:
                 self.last_q0, self.last_qd0, self.last_q_full = q[j], qd[j], list(q)
                 self.q0_min = q[j] if self.q0_min is None else min(self.q0_min, q[j])
                 self.q0_max = q[j] if self.q0_max is None else max(self.q0_max, q[j])
+                self.last_speed_fraction = sf
+                if sf is None:
+                    self.speed_fraction_missing += 1
+                else:
+                    self.min_speed_fraction = sf if self.min_speed_fraction is None else min(self.min_speed_fraction, sf)
                 self.started_ok.set()
                 if self.rows % 250 == 0:
                     csv_file.flush()
@@ -403,7 +445,17 @@ class RtdeLogger:
         if len(self.ctrl_times) >= 3:
             d = [b - a for a, b in zip(self.ctrl_times[:-1], self.ctrl_times[1:])]
             lines.append(f"平均間隔 : {statistics.fmean(d)*1000:.4f} ms, std {statistics.pstdev(d)*1000:.4f} ms")
+        if self.min_speed_fraction is None:
+            lines.append("教導器速度滑桿：整段讀不到")
+        else:
+            lines.append(f"教導器速度滑桿（記錄中最低）: {100 * self.min_speed_fraction:.1f}%"
+                         + (f"，讀不到 {self.speed_fraction_missing} 列" if self.speed_fraction_missing else ""))
         return "\n".join(lines)
+
+    def speed_fraction_held(self, min_fraction=SPEED_FRACTION_MIN):
+        """整段記錄中滑桿都讀得到，且不低於 min_fraction。"""
+        return (self.rows > 0 and self.speed_fraction_missing == 0
+                and self.min_speed_fraction is not None and self.min_speed_fraction >= min_fraction)
 
 
 # ============================================================
@@ -647,6 +699,12 @@ def main():
         logger.stop()
         print("\n[中止] J0 視窗檢查未通過，未送出任何軌跡，手臂未動作。")
         return
+    sf_ok, sf_msg = check_speed_fraction(logger.last_speed_fraction)
+    print(f"\n[速度滑桿檢查] {sf_msg}")
+    if not sf_ok:
+        logger.stop()
+        print("\n[中止] 速度滑桿檢查未通過，未送出任何軌跡，手臂未動作。")
+        return
 
     script = build_full_urscript(accels, V_PEAK, n_repeat, t_hold, DIRECTION, JOINT_INDEX,
                                  q_start_full, MOVEJ_RETURN_ACCEL, MOVEJ_RETURN_VEL, PAUSE_TIME)
@@ -684,6 +742,8 @@ def main():
             f"實際運動時長 / 預估 : {span:.2f}s / {est_total:.2f}s",
         ]
         print("\n" + "\n".join(measured))
+    if not logger.speed_fraction_held():
+        print("\n[警告] 執行中教導器速度滑桿曾低於 100% 或讀不到（見摘要），這次的資料不可用。")
 
     with open(info_path, "w", encoding="utf-8") as f:
         f.write(f"方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n加速度檔位: {accels}\n每檔次數: {n_repeat}\n")

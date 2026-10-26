@@ -10,16 +10,17 @@
 測試內容
 --------
 1. 語法正確。
-2. 規劃：三個階段為 1、4、28 段；FULL 條件輪流、起點錯開 (k − 3)/7 個馬達圈（7 的倍數次以外的漣波諧波
+2. 規劃：三個階段為 1、6、42 段；FULL 條件輪流、起點錯開 (k − 3)/7 個馬達圈（7 的倍數次以外的漣波諧波
    在 7 次重複中平均為 0）；調變段長 V_CRUISE·T_MOD、中心 = 180° + 錯開量；正反轉以 180° 對稱。
+   條件：前四個與 10/22 相同（順序不變）；條件 5 的加速度振幅最低；條件 6 與條件 2 加速度振幅相同、頻率不同。
 3. 安全檢查：三個階段、兩個方向都通過，且規劃範圍在固定角度窗口定速實驗 FULL 的規劃範圍內；
    J0 視窗未設定、視窗太窄、速度超限、speedj 加速度上限小於調變所需、最低速度過低、非整數週期時 FAIL。
 4. 起始位置檢查：視窗未設定、目前角度在視窗外、離第一段起點過遠時拒絕。
 5. URScript：縮排規則、只含 ASCII、每段兩個有次數上限且有角度保護的迴圈（正轉 "<"、反轉 ">"）、
    movej 只改 J0 且最後回到 180°；照腳本逐週期算出的速度指令 = 巡航 + A·sin(2πft)，
    最低速度不低於下限、加速度低於 speedj 上限、整數週期使調變不改變總位移。
-6. main()：視窗未設定、RTDE 失敗、起始位置過遠時都在送出前中止；QUICK 端對端自動命名（含姿態），
-   CSV 含額外訊號欄位（假 RTDE 沒有的方法該欄留空）。
+6. main()：視窗未設定、RTDE 失敗、起始位置過遠時都在送出前中止；QUICK 端對端自動命名（含姿態、負載），
+   CSV 含額外訊號欄位（假 RTDE 沒有的方法該欄留空）與教導器速度滑桿欄位。
 7. 姿態：check_pose 只比 J1~J5、±0.5°、±360° 等價，未知姿態、讀不到、NaN 一律拒絕；兩個姿態的法蘭距離
    與 UR5 DH 計算相符；法蘭線速度上限。main()：EXT45 端對端（movej 只改 J0、J1~J5 維持外伸）；
    姿態與實際角度不符、EXT45 未輸入姿態名稱、未知姿態時都在送出前中止。
@@ -28,6 +29,10 @@
    J 對 1/A 回歸找回 J 與 c；電流延遲 2 ms 時 J 依 J − B_local·Δ 偏低、由 B_local 隨頻率的變化找回延遲；
    起點錯開使無漣波項模型的 J 不偏（不錯開則 2 Hz 偏低）；QUICK、MID 資料只列各段、不當機；
    target_moment 對 target_qdd 回歸找回 J_model（兩個方向、QUICK 也可），舊資料沒有此欄位時略過。
+9. 負載：PAYLOAD_KG 未設定、不是 ≥ 0 的數值時離線檢查即 FAIL；操作者輸入的教導器負載與 PAYLOAD_KG 不符、
+   讀不懂時在送出前中止；資料夾名稱含負載標記（1.3 kg → p130）。
+10. 教導器速度滑桿：不是 100%、讀不到（None、NaN、讀取丟例外、ur_rtde 沒有此方法）時在送出前中止；
+    執行中被調低時摘要記下最低值，並警告這次的資料不可用。
 """
 
 import os
@@ -56,11 +61,13 @@ ANG = os.path.join(ROBOT, "ur5_const_velocity_angle_ident.py")
 HOME_Q = [3.14159265, -1.57079633, 1.57079633, -1.57079633, -1.57079633, 0.0]
 EXT45_Q = [HOME_Q[0]] + [math.radians(x) for x in (-45.0, 45.0, -90.0, -90.0, 0.0)]
 FAKE_MOMENT = [0.5, -40.0, 12.0, 1.5, 0.2, 0.0]
+PAYLOAD = 1.3                                         # 測試用負載 [kg]（實機由使用者填入 PAYLOAD_KG）
 
 
 class FakeRTDE:
     """沒有 getTargetCurrent、getJointControlOutput：檢查不支援的訊號留空、不影響其他欄位。"""
     q = list(HOME_Q)
+    sf = 1.0                                          # 教導器速度滑桿（target_speed_fraction）
     def __init__(self, ip): pass
     def getTimestamp(self): return time.time()
     def getActualQ(self): return list(FakeRTDE.q)
@@ -70,6 +77,7 @@ class FakeRTDE:
     def getTargetQdd(self): return [0.0] * 6
     def getTargetMoment(self): return list(FAKE_MOMENT)
     def getJointTemperatures(self): return [30.0] * 6
+    def getTargetSpeedFraction(self): return FakeRTDE.sf
     def disconnect(self): pass
 
 
@@ -83,11 +91,18 @@ def load(name, path=VM):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     mod.home_pose = None
+    if hasattr(mod, "PAYLOAD_KG"):
+        mod.PAYLOAD_KG = PAYLOAD
     return mod
 
 
 def no_network(*a, **k):
     raise RuntimeError("測試中禁止任何網路連線")
+
+
+def answers(default="yes", payload=str(PAYLOAD)):
+    """模擬操作者輸入：問教導器負載質量時回答 payload，其他提示回答 default。"""
+    return lambda prompt="", *a, **k: payload if "負載質量" in str(prompt) else default
 
 
 def plan(m, stage, direction, conditions=None, t_mod=None):
@@ -115,13 +130,15 @@ class Base(unittest.TestCase):
         self._sock = socket.socket
         self._input = builtins.input
         socket.socket = no_network
-        builtins.input = lambda *a, **k: "yes"
+        builtins.input = answers()
         FakeRTDE.q = list(HOME_Q)
+        FakeRTDE.sf = 1.0
 
     def tearDown(self):
         socket.socket = self._sock
         builtins.input = self._input
         FakeRTDE.q = list(HOME_Q)
+        FakeRTDE.sf = 1.0
 
 
 def urscript_indent_ok(text):
@@ -135,10 +152,12 @@ class TestPlan(Base):
 
     def test_stages_order_offsets(self):
         m = load("vm_plan1")
-        self.assertEqual([len(plan(m, st, +1)) for st in ("QUICK", "MID", "FULL")], [1, 4, 28])
+        nc = len(m.CONDITIONS)
+        self.assertEqual(nc, 6)
+        self.assertEqual([len(plan(m, st, +1)) for st in ("QUICK", "MID", "FULL")], [1, nc, 7 * nc])
         segs = plan(m, "FULL", +1)
-        self.assertEqual([s["cond"] for s in segs], [0, 1, 2, 3] * 7, "條件應依重複輪流")
-        self.assertEqual([s["repeat"] for s in segs], [k for k in range(7) for _ in range(4)])
+        self.assertEqual([s["cond"] for s in segs], list(range(nc)) * 7, "條件應依重複輪流")
+        self.assertEqual([s["repeat"] for s in segs], [k for k in range(7) for _ in range(nc)])
         rev = 360.0 / m.GEAR_RATIO
         offs = m.start_offsets_deg(7)
         self.assertAlmostEqual(offs[1] - offs[0], rev / 7, places=12)
@@ -146,11 +165,27 @@ class TestPlan(Base):
         self.assertEqual(m.start_offsets_deg(1), [0.0])
         for d in (+1, -1):
             segs = plan(m, "FULL", d)
-            for ci in range(4):
+            for ci in range(nc):
                 phi = np.array([m.GEAR_RATIO * math.radians(s["mod_start_deg"]) for s in segs if s["cond"] == ci])
                 for h in (1, 2, 4, 5, 10, 12, 20, 24):
                     self.assertLess(abs(np.mean(np.exp(1j * h * phi))), 1e-9, f"{h} 次漣波應平均掉")
                 self.assertAlmostEqual(abs(np.mean(np.exp(7j * phi))), 1.0, places=9)
+
+    def test_conditions(self):
+        """前四個條件與 10/22 相同（順序不變）；條件 5 加速度振幅最低；條件 6 與條件 2 同加速度振幅、不同頻率。"""
+        m = load("vm_cond")
+        C = m.CONDITIONS
+        self.assertEqual(C[:4], [(1.0, 0.06), (2.0, 0.06), (3.0, 0.06), (2.0, 0.03)])
+        A = [2 * math.pi * f * amp for f, amp in C]
+        self.assertLess(A[4], 0.6 * min(A[:4]), "條件 5：比 10/22 最低的加速度振幅再低")
+        self.assertAlmostEqual(A[5], A[1], places=12)
+        self.assertNotEqual(C[5][0], C[1][0])
+        for f, _ in C:
+            self.assertAlmostEqual(f * m.T_MOD, round(f * m.T_MOD), places=12, msg="整數個週期")
+        # 分析以「頻率差 < 10%、振幅差 < 25%」配對條件：任兩個條件不可同時落在範圍內
+        for i, (f1, a1) in enumerate(C):
+            for f2, a2 in C[i + 1:]:
+                self.assertFalse(abs(f2 / f1 - 1) < 0.1 and abs(a2 / a1 - 1) < 0.25, f"{C[i]} 與 {(f2, a2)} 無法區分")
 
     def test_geometry_and_symmetry(self):
         m = load("vm_plan2")
@@ -265,8 +300,30 @@ class TestPlan(Base):
              for st in ("QUICK", "MID", "FULL")}
         self.assertLess(t["QUICK"], t["MID"])
         self.assertLess(t["MID"], t["FULL"])
-        self.assertLess(t["FULL"], 400.0, "FULL 每個方向應在 7 分鐘內")
-        self.assertGreater(t["FULL"], 28 * (m.T_MOD + 1.0))
+        self.assertLess(t["FULL"], 600.0, "FULL 每個方向應在 10 分鐘內")
+        self.assertGreater(t["FULL"], len(plan(m, "FULL", +1)) * (m.T_MOD + 1.0))
+
+    def test_payload_checks(self):
+        m = load("vm_payload_unit")
+        for bad in (None, -0.1, float("nan"), float("inf"), "abc"):
+            self.assertFalse(m.check_payload_setting(bad)[0], repr(bad))
+        self.assertTrue(m.check_payload_setting(1.3)[0])
+        self.assertTrue(m.check_payload_setting(0)[0])
+        self.assertTrue(m.check_payload_entry(1.3, "1.3")[0])
+        self.assertTrue(m.check_payload_entry(1.3, " 1.30 ")[0])
+        self.assertTrue(m.check_payload_entry(3.3, "3.304")[0], "容差 0.005 kg 內")
+        for entered in ("1.31", "3.3", "", "abc", "nan", "yes"):
+            self.assertFalse(m.check_payload_entry(1.3, entered)[0], repr(entered))
+        self.assertFalse(m.check_payload_entry(None, "1.3")[0], "PAYLOAD_KG 未設定時一律拒絕")
+        self.assertEqual([m.payload_tag(p) for p in (1.3, 3.3, 0, 1.25)], ["p130", "p330", "p000", "p125"])
+
+    def test_speed_fraction_check(self):
+        m = load("vm_sf_unit")
+        self.assertTrue(m.check_speed_fraction(1.0)[0])
+        self.assertTrue(m.check_speed_fraction(0.999)[0])
+        for bad in (0.52, 0.99, 0.0, None, float("nan"), "abc", -1.0):
+            self.assertFalse(m.check_speed_fraction(bad)[0], repr(bad))
+        self.assertIn("52.0%", m.check_speed_fraction(0.52)[1])
 
 
 class TestURScript(Base):
@@ -337,6 +394,7 @@ class TestMain(Base):
         m = load("vm_main1")
         m.J0_SAFE_MIN_DEG = m.J0_SAFE_MAX_DEG = None
         self.assertEqual(self._run(m), [], "視窗未設定時不該送出任何軌跡")
+        self.assertIn("安全檢查未通過", self.last_out)
 
     def test_rtde_failure_aborts(self):
         m = load("vm_main2")
@@ -346,18 +404,75 @@ class TestMain(Base):
             def __init__(self, ip): raise ConnectionError("模擬 RTDE 連線失敗")
         sys.modules["rtde_receive"].RTDEReceiveInterface = Failing
         self.assertEqual(self._run(m), [], "RTDE 失敗時不該送出任何軌跡")
+        self.assertIn("RTDE 記錄未能啟動", self.last_out)
 
     def test_far_start_aborts(self):
         m = load("vm_main3")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
         FakeRTDE.q = [math.radians(100.0)] + HOME_Q[1:]       # J0 離第一段起點很遠
         self.assertEqual(self._run(m), [], "起始位置過遠時不該送出任何軌跡")
+        self.assertIn("起始位置檢查未通過", self.last_out)
 
-    def _run_done(self, m, stage="QUICK", directions=(+1,)):
+    def test_payload_aborts(self):
+        """PAYLOAD_KG 未設定、不是數值：離線檢查即中止；教導器負載與 PAYLOAD_KG 不符、讀不懂：送出前中止，不建資料夾。"""
+        cases = [(None, str(PAYLOAD), "安全檢查未通過"), (-1.0, "-1", "安全檢查未通過"),
+                 (float("nan"), "nan", "安全檢查未通過"),
+                 (PAYLOAD, "3.3", "負載確認未通過"), (PAYLOAD, "", "負載確認未通過"),
+                 (PAYLOAD, "yes", "負載確認未通過")]
+        for k, (payload, entered, reason) in enumerate(cases):
+            m = load(f"vm_payload{k}")
+            m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+            m.PAYLOAD_KG = payload
+            builtins.input = answers(payload=entered)
+            sent = []
+            m.send_urscript = lambda *a, **kw: sent.append(1)
+            out = io.StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                m.OUTPUT_DIR = tmp
+                m.TEST_STAGE, m.DIRECTION = "QUICK", +1
+                with contextlib.redirect_stdout(out):
+                    m.main()
+                self.assertEqual(os.listdir(tmp), [], f"案例 {k}：中止時不該建立資料夾")
+            self.assertEqual(sent, [], f"案例 {k}")
+            self.assertIn(reason, out.getvalue(), f"案例 {k}")
+
+    def test_speed_fraction_aborts(self):
+        """教導器速度滑桿不是 100%、讀不到、NaN、讀取丟例外、ur_rtde 沒有此方法：都在送出前中止。"""
+        def raising(self):
+            raise RuntimeError("模擬讀取失敗")
+        no_method = type("NoSF", (), {k: v for k, v in vars(FakeRTDE).items() if k != "getTargetSpeedFraction"})
+        bad_read = type("BadSF", (FakeRTDE,), {"getTargetSpeedFraction": raising})
+        cases = [(0.52, FakeRTDE, "52.0%"), (0.99, FakeRTDE, "99.0%"), (None, FakeRTDE, "讀不到"),
+                 (float("nan"), FakeRTDE, "讀不到"), (1.0, bad_read, "讀不到"), (1.0, no_method, "讀不到")]
+        for k, (sf, cls, text) in enumerate(cases):
+            m = load(f"vm_sf{k}")
+            m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+            FakeRTDE.sf = sf
+            sys.modules["rtde_receive"].RTDEReceiveInterface = cls
+            self.assertEqual(self._run(m), [], f"案例 {k}")
+            self.assertIn("速度滑桿檢查未通過", self.last_out, f"案例 {k}")
+            self.assertIn(text, self.last_out, f"案例 {k}")
+
+    def test_speed_fraction_drop_warns(self):
+        """執行中滑桿被調低：摘要記下最低值，結束時警告這次的資料不可用。"""
+        m = load("vm_sf_drop")
+        m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+
+        def wait(logger, planned_s, **k):
+            FakeRTDE.sf = 0.5
+            time.sleep(0.3)                                   # 讓記錄執行緒記到調低後的值
+            return "done", planned_s, planned_s
+        scripts, files, out = self._run_done(m, wait=wait)
+        self.assertEqual(len(scripts), 1)
+        self.assertIn("這次的資料不可用", out)
+        info = next(v for n, v in files.items() if n.startswith("velmod_info_"))
+        self.assertIn("教導器速度滑桿（記錄中最低）: 50.0%", info)
+
+    def _run_done(self, m, stage="QUICK", directions=(+1,), wait=None):
         """送出的腳本照收、運動視為完成；回傳 (腳本, {檔名: 內容}, stdout)。"""
         scripts, files = [], {}
         m.send_urscript = lambda ip, text, port=30002: scripts.append(text)
-        m.wait_for_motion_complete = lambda logger, planned_s, **k: ("done", planned_s, planned_s)
+        m.wait_for_motion_complete = wait or (lambda logger, planned_s, **k: ("done", planned_s, planned_s))
         out = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             m.OUTPUT_DIR = tmp
@@ -374,16 +489,19 @@ class TestMain(Base):
     def test_autoname_end_to_end(self):
         m = load("vm_main4")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
-        scripts, files, _ = self._run_done(m, directions=(+1, -1))
+        scripts, files, out = self._run_done(m, directions=(+1, -1))
         csvs = sorted(n for n in files if n.endswith(".csv"))
         self.assertEqual(len(csvs), 2, csvs)
-        self.assertTrue(any(n.startswith("velmod_data_diag_pos_quick_") for n in csvs))
-        self.assertTrue(any(n.startswith("velmod_data_diag_neg_quick_") for n in csvs))
+        self.assertTrue(any(n.startswith("velmod_data_diag_p130_pos_quick_") for n in csvs))
+        self.assertTrue(any(n.startswith("velmod_data_diag_p130_neg_quick_") for n in csvs))
         infos = [v for n, v in files.items() if n.startswith("velmod_info_")]
         self.assertEqual(len(infos), 2)
         for v in infos:
             self.assertIn("姿態 DIAG", v)
             self.assertIn("額外訊號", v)
+            self.assertIn(f"負載 PAYLOAD_KG: {PAYLOAD} kg", v)
+            self.assertIn("教導器速度滑桿（記錄中最低）: 100.0%", v)
+        self.assertNotIn("這次的資料不可用", out)
         self.assertEqual(len(scripts), 2)
         for s in scripts:
             self.assertTrue(s.startswith("def velocity_modulation_program():"))
@@ -398,16 +516,18 @@ class TestMain(Base):
             self.assertAlmostEqual(float(rows[0][f"target_moment_{j}"]), FAKE_MOMENT[j])
             self.assertEqual(rows[0][f"target_current_{j}"], "")
             self.assertEqual(float(rows[0][f"actual_q_{j}"]), HOME_Q[j], "主要欄位不受影響")
+        self.assertTrue(all(float(r["target_speed_fraction"]) == 1.0 for r in rows), "每列記下教導器速度滑桿")
 
     def test_ext45_end_to_end(self):
         m = load("vm_main5")
         m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
         m.POSE = "EXT45"
+        m.PAYLOAD_KG = 3.3
         FakeRTDE.q = list(EXT45_Q)
-        builtins.input = lambda *a, **k: "EXT45"
+        builtins.input = answers("EXT45", payload="3.30")
         scripts, files, out = self._run_done(m)
         self.assertEqual(len(scripts), 1)
-        self.assertTrue(any(n.startswith("velmod_data_ext45_pos_quick_") for n in files), list(files))
+        self.assertTrue(any(n.startswith("velmod_data_ext45_p330_pos_quick_") for n in files), list(files))
         movej = [l for l in scripts[0].splitlines() if "movej(" in l]
         self.assertEqual(len(movej), 2)
         for line in movej:
@@ -415,7 +535,7 @@ class TestMain(Base):
             for j in range(1, 6):
                 self.assertAlmostEqual(vals[j], EXT45_Q[j], places=5, msg="J1~J5 維持外伸姿態")
         self.assertAlmostEqual(math.degrees(float(movej[-1].split("[")[1].split(",")[0])), 180.0, places=4)
-        self.assertIn("請以示教器移回診斷原點", out)
+        self.assertIn("請以教導器移回診斷原點", out)
 
     def test_pose_mismatch_aborts(self):
         cases = [("EXT45", HOME_Q, "EXT45", "姿態檢查未通過", "設定外伸姿態，手臂在診斷原點"),
@@ -427,7 +547,7 @@ class TestMain(Base):
             m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
             m.POSE = pose
             FakeRTDE.q = list(q)
-            builtins.input = lambda *a, _ans=answer, **kw: _ans
+            builtins.input = answers(answer)
             self.assertEqual(self._run(m), [], why)
             self.assertIn(reason, self.last_out, why)
 
@@ -562,9 +682,10 @@ class TestAnalysis(unittest.TestCase):
         for d in (+1, -1):
             m, r = self.result("pos" if d > 0 else "neg", d=d)
             msg = f"方向 {d:+d}"
-            self.assertEqual(len(r["segments"]), 28, msg)
+            nc = len(m.CONDITIONS)
+            self.assertEqual(len(r["segments"]), 7 * nc, msg)
             self.assertEqual(r["skipped"], 0, msg)
-            self.assertEqual(sorted(r["conditions"]), [0, 1, 2, 3], msg)
+            self.assertEqual(sorted(r["conditions"]), list(range(nc)), msg)
             for sg in r["segments"]:
                 self.assertAlmostEqual(sg["n_cycles"], m.CONDITIONS[sg["cond"]][0] * m.T_MOD, delta=0.05, msg=msg)
             for ci, c in r["conditions"].items():
@@ -612,7 +733,7 @@ class TestAnalysis(unittest.TestCase):
         self.assertGreater(worst, 0.08)
 
     def test_quick_and_mid_only_list_segments(self):
-        for stage, n_seg in (("QUICK", 1), ("MID", 4)):
+        for stage, n_seg in (("QUICK", 1), ("MID", 6)):
             m, r = self.result(stage.lower(), stage=stage)
             self.assertEqual([sg["cond"] for sg in r["segments"]], list(range(n_seg)), stage)
             self.assertEqual(r["conditions"], {}, stage)
@@ -622,7 +743,7 @@ class TestAnalysis(unittest.TestCase):
     def test_target_moment_model(self):
         """target_moment 對 target_qdd、target_qd 回歸找回 J_model；QUICK、MID 也算；舊資料沒有此欄位時略過。"""
         mdl = (2.1, 0.8, 3.0)
-        for key, d, stage, n_cond in (("model_full", +1, "FULL", 4), ("model_mid_neg", -1, "MID", 4),
+        for key, d, stage, n_cond in (("model_full", +1, "FULL", 6), ("model_mid_neg", -1, "MID", 6),
                                       ("model_quick", +1, "QUICK", 1)):
             _, r = self.result(key, d=d, stage=stage, model=mdl)
             self.assertEqual(sorted(r["model"]), list(range(n_cond)), key)
@@ -632,7 +753,7 @@ class TestAnalysis(unittest.TestCase):
                 self.assertLess(mr["model_resid_rms"], 1e-6, key)
             self.assertAlmostEqual(r["J_model_mean"], mdl[0], delta=1e-4, msg=key)
         _, r = self.result("model_full", model=mdl)
-        self.assertEqual(sorted(r["conditions"]), [0, 1, 2, 3], "加了額外欄位不影響原本的回歸")
+        self.assertEqual(sorted(r["conditions"]), list(range(6)), "加了額外欄位不影響原本的回歸")
         _, r = self.result("pos", d=+1)
         self.assertEqual(r["model"], {}, "舊資料沒有 target_moment 欄位")
         self.assertNotIn("J_model_mean", r)
