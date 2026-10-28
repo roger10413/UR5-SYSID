@@ -42,6 +42,8 @@ for ax, pose in zip(axs, ("DIAG", "EXT45")):
     ax.grid(alpha=0.3)
     ax.text(0.98, 0.04, f"控制器模型 J_model = {P['J_model']:.2f}（超出圖範圍）", transform=ax.transAxes,
             ha="right", va="bottom", fontsize=9.5, color=CM)
+    ax.text(0.98, 0.11, "誤差棒：單輪回歸的標準差", transform=ax.transAxes, ha="right", va="bottom",
+            fontsize=9.5, color="0.35")
     ax.legend(loc="upper left", fontsize=9.5, framealpha=0.9)
 axs[0].set_ylabel("J [kg·m²]（Kt = 0.135）")
 h = [plt.Line2D([], [], ls="", marker="o", ms=8, color=FC[0], label="1 Hz × 0.06 rad/s"),
