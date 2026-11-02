@@ -21,8 +21,8 @@
    最低速度不低於下限、加速度低於 speedj 上限、整數週期使調變不改變總位移。
 6. main()：視窗未設定、RTDE 失敗、起始位置過遠時都在送出前中止；QUICK 端對端自動命名（含姿態、負載），
    CSV 含額外訊號欄位（假 RTDE 沒有的方法該欄留空）與教導器速度滑桿欄位。
-7. 姿態：check_pose 只比 J1~J5、±0.5°、±360° 等價，未知姿態、讀不到、NaN 一律拒絕；兩個姿態的法蘭距離
-   與 UR5 DH 計算相符；法蘭線速度上限。main()：EXT45 端對端（movej 只改 J0、J1~J5 維持外伸）；
+7. 姿態：check_pose 只比 J1~J5、±0.5°、±360° 等價，未知姿態、讀不到、NaN 一律拒絕；各姿態的法蘭距離
+   與 UR5 DH 計算相符；法蘭線速度上限。main()：EXT45、UP 端對端（movej 只改 J0、J1~J5 維持原姿態）；
    姿態與實際角度不符、EXT45 未輸入姿態名稱、未知姿態時都在送出前中止。
 8. 分析（合成資料：J = 1.5、10/15 實測的漣波與起步後行程曲線、白雜訊 + 慢變雜訊、伺服延遲 3 ms）：
    兩個方向都找回 J、B_local、追隨增益與延遲；減速時摩擦較大時各條件 J 依 J − 2c/(πA) 變化、
@@ -60,6 +60,7 @@ ANG = os.path.join(ROBOT, "ur5_const_velocity_angle_ident.py")
 
 HOME_Q = [3.14159265, -1.57079633, 1.57079633, -1.57079633, -1.57079633, 0.0]
 EXT45_Q = [HOME_Q[0]] + [math.radians(x) for x in (-45.0, 45.0, -90.0, -90.0, 0.0)]
+UP_Q = [HOME_Q[0]] + [math.radians(x) for x in (-90.0, 0.0, -90.0, -90.0, 0.0)]
 FAKE_MOMENT = [0.5, -40.0, 12.0, 1.5, 0.2, 0.0]
 PAYLOAD = 1.3                                         # 測試用負載 [kg]（實機由使用者填入 PAYLOAD_KG）
 
@@ -256,6 +257,10 @@ class TestPlan(Base):
         self.assertTrue(m.check_pose(EXT45_Q, "EXT45")[0])
         self.assertFalse(m.check_pose(HOME_Q, "EXT45")[0])
         self.assertFalse(m.check_pose(EXT45_Q, "DIAG")[0])
+        self.assertTrue(m.check_pose(UP_Q, "UP")[0])
+        self.assertFalse(m.check_pose(HOME_Q, "UP")[0], "設定朝上，手臂在診斷原點")
+        self.assertFalse(m.check_pose(UP_Q, "DIAG")[0], "設定診斷原點，手臂朝上")
+        self.assertFalse(m.check_pose(UP_Q, "EXT45")[0])
         q = list(HOME_Q); q[3] += math.radians(0.4)
         self.assertTrue(m.check_pose(q, "DIAG")[0], "差 0.4° 在容差內")
         q[3] += math.radians(0.2)
@@ -287,7 +292,7 @@ class TestPlan(Base):
 
     def test_flange_speed(self):
         m = load("vm_speed")
-        for pose in ("DIAG", "EXT45"):
+        for pose in ("DIAG", "EXT45", "UP"):
             ok, msg = m.check_flange_speed(pose, m.CONDITIONS, m.V_CRUISE)
             self.assertTrue(ok, msg)
         ok, msg = m.check_flange_speed("EXT45", [(1.0, 0.2)], m.V_CRUISE)
@@ -537,11 +542,32 @@ class TestMain(Base):
         self.assertAlmostEqual(math.degrees(float(movej[-1].split("[")[1].split(",")[0])), 180.0, places=4)
         self.assertIn("請以教導器移回診斷原點", out)
 
+    def test_up_end_to_end(self):
+        m = load("vm_main6")
+        m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
+        m.POSE = "UP"
+        m.PAYLOAD_KG = 1.3
+        FakeRTDE.q = list(UP_Q)
+        builtins.input = answers("UP", payload="1.30")
+        scripts, files, out = self._run_done(m)
+        self.assertEqual(len(scripts), 1)
+        self.assertTrue(any(n.startswith("velmod_data_up_p130_pos_quick_") for n in files), list(files))
+        movej = [l for l in scripts[0].splitlines() if "movej(" in l]
+        self.assertEqual(len(movej), 2)
+        for line in movej:
+            vals = [float(x) for x in line.split("[")[1].split("]")[0].split(",")]
+            for j in range(1, 6):
+                self.assertAlmostEqual(vals[j], UP_Q[j], places=5, msg="J1~J5 維持朝上姿態")
+        self.assertAlmostEqual(math.degrees(float(movej[-1].split("[")[1].split(",")[0])), 180.0, places=4)
+        self.assertIn("請以教導器移回診斷原點", out)
+
     def test_pose_mismatch_aborts(self):
         cases = [("EXT45", HOME_Q, "EXT45", "姿態檢查未通過", "設定外伸姿態，手臂在診斷原點"),
                  ("DIAG", EXT45_Q, "yes", "姿態檢查未通過", "設定診斷原點，手臂在外伸姿態（RTDE 檢查擋下）"),
                  ("EXT45", EXT45_Q, "yes", "已取消", "外伸姿態未輸入姿態名稱確認"),
-                 ("FOO", HOME_Q, "FOO", "未知的姿態", "未知的姿態名稱")]
+                 ("FOO", HOME_Q, "FOO", "未知的姿態", "未知的姿態名稱"),
+                 ("UP", HOME_Q, "UP", "姿態檢查未通過", "設定朝上，手臂在診斷原點"),
+                 ("UP", UP_Q, "yes", "已取消", "朝上姿態未輸入姿態名稱確認")]
         for k, (pose, q, answer, reason, why) in enumerate(cases):
             m = load(f"vm_pose{k}")
             m.J0_SAFE_MIN_DEG, m.J0_SAFE_MAX_DEG = 65, 300
