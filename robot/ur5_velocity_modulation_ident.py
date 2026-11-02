@@ -166,7 +166,7 @@ SPEED_FRACTION_MIN = 0.999
 EXTRA_SIGNALS = (("target_qdd", "getTargetQdd"), ("target_moment", "getTargetMoment"),
                  ("target_current", "getTargetCurrent"), ("joint_control_output", "getJointControlOutput"))
 
-OUTPUT_DIR = "."
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outputs")   # 存到專案根目錄的 outputs/，不和程式混在一起
 
 
 # ============================================================

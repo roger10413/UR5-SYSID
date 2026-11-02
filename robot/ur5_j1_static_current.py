@@ -112,7 +112,7 @@ DH_D = (0.089159, 0.0, 0.0, 0.10915, 0.09465, 0.0823)
 DH_A = (0.0, -0.425, -0.39225, 0.0, 0.0, 0.0)
 DH_ALPHA = (math.pi / 2, 0.0, 0.0, math.pi / 2, -math.pi / 2, 0.0)
 
-OUTPUT_DIR = "."
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outputs")   # 存到專案根目錄的 outputs/，不和程式混在一起
 
 
 # ============================================================

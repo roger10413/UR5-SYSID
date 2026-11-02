@@ -113,7 +113,7 @@ KT_OUT = 101 * 0.1350
 J0_SAFE_MIN_DEG = None
 J0_SAFE_MAX_DEG = None
 
-OUTPUT_DIR = "."
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outputs")   # 存到專案根目錄的 outputs/，不和程式混在一起
 
 
 # ============================================================

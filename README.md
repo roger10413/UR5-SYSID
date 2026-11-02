@@ -143,6 +143,8 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 
 CSV 欄位（RTDE 125 Hz 記錄）：`timestamp`，以及各關節 `actual_q_k`、`actual_qd_k`、`actual_current_k`、`target_qd_k`、`joint_temp_k`（k = 0～5）。速度調變實驗另記錄 `target_qdd_k`、`target_moment_k`、`target_current_k`、`joint_control_output_k`（控制器或 ur_rtde 不支援時留空）。2026/10/26 起五支上機程式都另記錄 `target_speed_fraction`（教導器速度滑桿，0～1；讀不到時留空）。
 
+上機程式的輸出資料夾（`velmod_*`、`j1static_*`、`warmup_*` 等）存在專案根目錄的 `outputs/`（2026/10/29 起，尚未審查；之前存在執行時的目前目錄），與執行位置無關，`outputs/` 不進 git。
+
 ## 備註
 
 - `Kt = 0.135 N·m/A` 與減速比 101 借自文獻數值，未獨立鑑別；`B`、`Tc`、`J` 的絕對值會隨 `Kt` 等比例改變。
