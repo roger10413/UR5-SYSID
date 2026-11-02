@@ -12,32 +12,44 @@ J0 是垂直軸，重力不作用在 J0 上；J1（肩關節）是水平軸，�
   正轉 C₊ = Tc + H̄，反轉 C₋ = Tc − H̄  →  Tc = (C₊ + C₋)/2，H̄ = (C₊ − C₋)/2
 不需要連桿質量模型（combine_directions）。
 
+★★★ 姿態：以手臂朝上（UP）為主 ★★★
+
+上面的相消假設兩個方向的摩擦一樣大。減速機的摩擦一般會隨傳遞的力矩改變（UR5 的大小未知，推測），
+窗口內的重力若都在同一邊，往上抬與往下放的受力不同，Tc 與 H̄ 會互相混入。所以：
+  - UP（主要）：J2 = 0°，手臂朝上（同速度調變的 UP）。窗口中心放在重力零點 −92°（官方連桿質量 + 末端工具 1.30 kg），
+    窗口內重力 −12.4～+12.4 N·m、平均 0，正反轉受力左右對稱：即使摩擦隨受力改變，兩方向仍相同。
+    H̄ 應約為 0，正轉、反轉各自的 C 都應等於 Tc，可互相檢查。
+  - DIAG（對照）：診斷原點。窗口中心 −109°，窗口內重力 −0.2～+17.1 N·m（平均 +8.6），都在同一邊；以摩擦 12 N·m 估，
+    減速機傳遞的力矩平均往上抬 21 N·m、往下放 5 N·m。作為「有負載」的對照，兩姿態的 Tc 相比可看摩擦隨負載變多少。
+  合成資料（tests/test_j1_constvel_offline.py）：摩擦加上 0.1 × |傳遞力矩| 時，UP 的 H̄ 仍為 0，DIAG 的 H̄ 偏約 9%。
+
 另記錄控制器的 target_moment（重力模型：UR 官方連桿質量 + 教導器負載；只有 J1 定速時即為 H）。
-量到的 H̄ 與 target_moment 窗口平均之比、窗口內兩者對角度的斜率之比，可作為 J1 換算比例的參考
+DIAG 時 H̄ 與 target_moment 窗口平均之比、兩姿態窗口內兩者對角度的斜率之比，可作為 J1 換算比例的參考
 （推測用：前提是控制器的重力模型正確）。
 
-窗口與動作（J0 = 180°，J2~J5 為診斷原點；J1 角度減少時手臂往回抬，增加時手臂下降）：
-  - 窗口 6 個馬達圈（21.39°），中心 −109°：[−119.69°, −98.31°]。
+窗口與動作（J0 = 180°；J1 = −90° 時上臂直立，J1 角度減少往後仰、增加往前傾）：
+  - 窗口 6 個馬達圈（21.39°）：UP [−102.69°, −81.31°]，DIAG [−119.69°, −98.31°]。
   - 每一段同 J0：movej 到起點 → speedj 加速並穩定 → 定速掃過窗口，控制器每週期讀 J1 角度，超過終點才 stopj。
-  - 所有段的起點、煞車後最遠點都在 −127.71°～−90.29°（−127.71° 為 FULL 正轉 0.20 rad/s 的起點）：
-    手臂只在診斷原點往回抬的一側活動，不會低於診斷原點。全部段跑完後 movej 回到 J1 = −90°（診斷原點）。
-  - 法蘭離底座安裝面的高度：−90° 時 0.43 m，−127.7° 時 0.66 m；手肘最多移到底座後方約 0.25 m（高度約 0.43 m）。
-  - 重力力矩（官方連桿質量 + 末端工具 1.30 kg）在 −119.5° 附近為零，窗口內 −0.2～+17.1 N·m（平均 +8.6）。
-    正轉（手臂下降）時馬達力矩在窗口內由正變負（減速機受力面換邊）；反轉不換邊。
+  - 所有段的起點、煞車後最遠點：
+      UP   −110.71°～−73.29°：法蘭離底座安裝面 0.94～1.00 m，從 J0 軸後方 0.22 m 到前方 0.36 m，工具尖端最高約 1.05 m。
+      DIAG −127.71°～−90.29°：不低於診斷原點；法蘭 0.43～0.66 m，手肘最多到底座後方約 0.25 m。
+    全部段跑完後 movej 回到 J1 = −90°（開始姿態）。
+  - 法蘭離 J1 軸：UP 0.92 m（0.20 rad/s 時 0.18 m/s），DIAG 0.60 m（0.12 m/s）。
   - FULL 每個方向 12 段，約 2.4 分鐘。
 
 ★★★ 使用前必讀 ★★★
 1. 【新程式，尚未經學長審查，也尚未上機】依 TEST_STAGE = QUICK → MID → FULL 階梯執行。
 2. 【兩個方向分開執行】DIRECTION = +1 跑完、人工確認後再改 −1。
 3. 【J1 視窗未設定一律中止】J1_SAFE_MIN_DEG / J1_SAFE_MAX_DEG 由操作者依現場淨空填寫；所有段的起點、
-   煞車後最遠點、結束點各外推 SAFETY_MARGIN_DEG 後都必須在視窗內（FULL 為 −129.71°～−88.00°）。
-4. 【法蘭高度】以 UR5 官方 DH 計算規劃範圍內（含餘裕）法蘭離底座安裝面的最低高度，低於 FLANGE_Z_MIN_M 即中止
-   （J1 角度增加時手臂下降；防止窗口設到下降側）。
-5. 【姿態】程式不會擺姿態：須先以教導器擺到診斷原點（J0 = 180°）；連上 RTDE 後以實際角度檢查六軸（±0.5°），
-   不符即中止。執行前須輸入 J1，確認手臂往回抬時上方與底座後方淨空、線材不會被拉扯。
+   煞車後最遠點、結束點各外推 SAFETY_MARGIN_DEG 後都必須在視窗內（FULL：UP −112.71°～−71.29°，DIAG −129.71°～−88.00°）。
+4. 【法蘭高度與速度】以 UR5 官方 DH 計算：規劃範圍內（含餘裕）法蘭離底座安裝面的最低高度須 ≥ FLANGE_Z_MIN_M
+   （防止窗口設到手臂下降側）；法蘭線速度（法蘭離 J1 軸距離 × 最高速度）須 ≤ FLANGE_SPEED_MAX（同速度調變）。
+5. 【姿態】程式不會擺姿態：須先以教導器擺好 POSE（UP：從診斷原點只把 J2 轉到 0°；J0 = 180°）；連上 RTDE 後
+   以實際角度檢查六軸（±0.5°），不符或姿態名稱未知即中止。執行前須輸入姿態名稱，確認手臂擺動範圍淨空、
+   線材不會被拉扯。UP 跑完後 J2 仍在 0°，請以教導器轉回 90°。
 6. 【負載 PAYLOAD_KG】同速度調變：填教導器上設定的負載質量（只有末端工具時 1.30 kg），未設定一律中止；
    執行前須輸入教導器上的負載質量，不符即中止。
-7. 【第一次 movej 的距離有上限】J1 與第一段起點相差超過 MAX_INITIAL_MOVE_DEG 就中止（各階段最大為 MID 正轉的 31.3°）。
+7. 【第一次 movej 的距離有上限】J1 與第一段起點相差超過 MAX_INITIAL_MOVE_DEG 就中止（各階段最大：UP 14.3°，DIAG 31.3°）。
 8. 【教導器速度滑桿】讀 target_speed_fraction，不是 100% 或讀不到一律中止；執行中的最低值寫進摘要。
 9. 【IP 需要你自己再次確認】
 """
@@ -66,7 +78,7 @@ except ImportError:
 ROBOT_IP = "192.168.50.114"   # 執行前請再次確認
 JOINT_INDEX = 1               # J1（肩關節）
 
-DIRECTION = +1        # +1 = J1 角度增加（手臂下降），-1 = J1 角度減少（手臂往上抬）。兩個方向分開執行，不要自動連續做
+DIRECTION = +1        # +1 = J1 角度增加（上臂往前傾），-1 = J1 角度減少（上臂往後仰）。兩個方向分開執行，不要自動連續做
 # QUICK: 單一檔 0.05 rad/s、窗口 1 個馬達圈（3.56°），驗證方向、角度停止與 movej 定位
 # MID  : 三檔 0.05 / 0.12 / 0.20 rad/s、完整窗口、只升速一趟，驗證多段與較長腳本
 # FULL : 六檔、完整窗口、先升後降（12 段）
@@ -76,9 +88,7 @@ SPEED_LEVELS = [0.02, 0.05, 0.08, 0.12, 0.16, 0.20]   # rad/s（同 J0）
 SPEED_ORDER = "UP_DOWN"                              # FULL 用；"UP" 或 "UP_DOWN"
 
 GEAR_RATIO = 101
-N_MOTOR_REVS_WINDOW = 6         # 窗口長度：6 個馬達圈 = 6 × 360/101 = 21.39°
-WINDOW_CENTER_DEG = -109.0      # 窗口中心（絕對角度）；FULL 反轉 0.20 rad/s 的起點為 −90.29°，不低於診斷原點
-END_J1_DEG = -90.0              # 全部段跑完後 movej 回到的 J1 角度（= 診斷原點）
+N_MOTOR_REVS_WINDOW = 6         # 窗口長度：6 個馬達圈 = 6 × 360/101 = 21.39°（窗口中心依姿態，見 POSES）
 SETTLE_TIME = 0.5               # 進入窗口前，在目標速度至少穩定的時間 [s]
 OVERRUN_DEG = 0.5               # 越過窗口終點後再走多少才 stopj [deg]
 
@@ -94,6 +104,7 @@ LOOP_TIME_FACTOR = 1.5          # URScript 迴圈次數上限 = 預估時間 × 
 SAFETY_MARGIN_DEG = 2.0         # 絕對角度檢查時，起點與最遠點各再外推的餘裕 [deg]
 MAX_INITIAL_MOVE_DEG = 40.0     # 目前 J1 到第一段起點的最大允許距離 [deg]
 FLANGE_Z_MIN_M = 0.40           # 規劃範圍（含餘裕）內法蘭離底座安裝面的最低高度 [m]（診斷原點為 0.43 m）
+FLANGE_SPEED_MAX = 0.25         # 法蘭線速度上限 [m/s]（同速度調變）：法蘭離 J1 軸距離 × 最高速度
 SPEED_FRACTION_MIN = 0.999      # 教導器速度滑桿（RTDE target_speed_fraction，0～1）的下限
 
 SAMPLE_HZ = 125.0
@@ -105,8 +116,13 @@ KT_OUT = GEAR_RATIO * 0.1350    # 本研究目前的換算比例 [N·m/A]（同 
 J1_SAFE_MIN_DEG = None
 J1_SAFE_MAX_DEG = None
 
-# 開始姿態：診斷原點，六軸 [deg]（J0 = 180°）。程式不會擺姿態，連上 RTDE 後以實際角度檢查。
-START_Q_DEG = (180.0, -90.0, 90.0, -90.0, -90.0, 0.0)
+# 姿態：六軸開始角度 [deg]（J0 = 180°）與 J1 窗口中心 [deg]。程式只動 J1：J2~J5 須先以教導器擺好，
+# 連上 RTDE 後以實際角度檢查六軸；全部段跑完後 J1 回到開始角度。
+POSE = "UP"
+POSES = {
+    "UP": dict(q_deg=(180.0, -90.0, 0.0, -90.0, -90.0, 0.0), center_deg=-92.0),     # 手臂朝上（同速度調變 UP）：窗口中心 = 重力零點（主要）
+    "DIAG": dict(q_deg=(180.0, -90.0, 90.0, -90.0, -90.0, 0.0), center_deg=-109.0), # 診斷原點：重力偏在同一邊（有負載的對照）；不低於診斷原點
+}
 POSE_TOL_DEG = 0.5
 
 # 法蘭負載：填教導器上設定的負載質量 [kg]（只有末端工具 FT300、夾爪、3D 相機時 1.30）。
@@ -118,7 +134,7 @@ PAYLOAD_TOL_KG = 0.005
 EXTRA_SIGNALS = (("target_q", "getTargetQ"), ("target_moment", "getTargetMoment"),
                  ("target_current", "getTargetCurrent"), ("joint_control_output", "getJointControlOutput"))
 
-# UR5（CB3）官方 DH 參數（只用於法蘭高度檢查）
+# UR5（CB3）官方 DH 參數（只用於法蘭高度與線速度檢查）
 DH_D = (0.089159, 0.0, 0.0, 0.10915, 0.09465, 0.0823)
 DH_A = (0.0, -0.425, -0.39225, 0.0, 0.0, 0.0)
 DH_ALPHA = (math.pi / 2, 0.0, 0.0, math.pi / 2, -math.pi / 2, 0.0)
@@ -209,22 +225,30 @@ def fk_frames(q):
     return frames
 
 
-def flange_height(q1_deg, q_deg=START_Q_DEG, joint_index=JOINT_INDEX):
+def flange_height(q1_deg, q_deg, joint_index=JOINT_INDEX):
     """法蘭中心離底座安裝面的高度 [m]：六軸角度 q_deg [deg]，其中 joint_index 換成 q1_deg。"""
     q = [math.radians(x) for x in q_deg]
     q[joint_index] = math.radians(q1_deg)
     return float(fk_frames(q)[6][2, 3])
 
 
+def flange_radius(q_deg, joint_index=JOINT_INDEX):
+    """法蘭中心離 J(joint_index) 轉軸的距離 [m]（六軸角度 q_deg [deg]）；只轉這一軸時距離不變。"""
+    fr = fk_frames([math.radians(x) for x in q_deg])
+    v = fr[6][:3, 3] - fr[joint_index][:3, 3]
+    z = fr[joint_index][:3, 2]
+    return float(np.linalg.norm(v - (v @ z) * z))
+
+
 def safety_check(segs, qd_max, qdd_max, accel, decel, movej_vel, movej_accel,
-                 safe_min_deg, safe_max_deg, margin_deg, end_deg=None,
-                 q_pose_deg=START_Q_DEG, flange_z_min=FLANGE_Z_MIN_M):
+                 safe_min_deg, safe_max_deg, margin_deg, q_pose_deg, end_deg=None,
+                 flange_z_min=FLANGE_Z_MIN_M, flange_speed_max=FLANGE_SPEED_MAX):
     """
-    回傳 (ok, lines, (planned_min_deg, planned_max_deg))。
-    1. 速度、加速度上限（同 J0）。
+    回傳 (ok, lines, (planned_min_deg, planned_max_deg))。q_pose_deg：開始姿態的六軸角度 [deg]（J1 以外不動）。
+    1. 速度、加速度上限（同 J0）；法蘭線速度 = 法蘭離 J1 軸距離 × max(最高速度, movej 速度)，須 ≤ flange_speed_max。
     2. 絕對角度：所有段的起點、煞車後最遠點與結束點，各外推 margin_deg，都必須在 J1 視窗內。
        J1 視窗未設定（None）一律 FAIL（預設拒絕）。
-    3. 法蘭高度：規劃範圍（含餘裕）內每 0.25°，以 UR5 官方 DH（其他五軸 = q_pose_deg）計算法蘭離底座安裝面的高度，
+    3. 法蘭高度：規劃範圍（含餘裕）內每 0.25°，以 UR5 官方 DH 計算法蘭離底座安裝面的高度，
        最低值須 ≥ flange_z_min；flange_z_min 不是有限數值時 FAIL。
     """
     lines, ok = [], True
@@ -242,6 +266,9 @@ def safety_check(segs, qd_max, qdd_max, accel, decel, movej_vel, movej_accel,
     chk("stopj 減速度", decel, qdd_max, "rad/s^2")
     chk("movej 速度", movej_vel, qd_max, "rad/s")
     chk("movej 加速度", movej_accel, qdd_max, "rad/s^2")
+    r = flange_radius(q_pose_deg)
+    chk(f"法蘭線速度（法蘭離 J1 軸 {r:.3f} m）", r * max(max(s["speed"] for s in segs), movej_vel),
+        flange_speed_max, "m/s")
 
     pts = [s["start_deg"] for s in segs] + [s["extreme_deg"] for s in segs]
     if end_deg is not None:
@@ -262,7 +289,7 @@ def safety_check(segs, qd_max, qdd_max, accel, decel, movej_vel, movej_accel,
     grid = list(np.arange(lo_plan, hi_plan, 0.25)) + [hi_plan]
     z_min = min(flange_height(a, q_pose_deg) for a in grid)
     z_lim = _finite_float(flange_z_min)
-    lines.append(f"法蘭離底座安裝面最低 : {z_min:.3f} m（規劃範圍含餘裕；其他五軸為開始姿態）  (限 ≥ {flange_z_min} m)")
+    lines.append(f"法蘭離底座安裝面最低 : {z_min:.3f} m（規劃範圍含餘裕）  (限 ≥ {flange_z_min} m)")
     if z_lim is None or z_min < z_lim:
         lines.append("  [FAIL]"); ok = False
     else:
@@ -285,14 +312,17 @@ def check_start_position(q1_deg, first_start_deg, max_move_deg, safe_min_deg, sa
     return True, msg + " -> OK"
 
 
-def check_pose(q_full_rad, target_deg=START_Q_DEG, tol_deg=POSE_TOL_DEG):
+def check_pose(q_full_rad, pose, poses=POSES, tol_deg=POSE_TOL_DEG):
     """
-    以 RTDE 量到的六軸角度 [rad] 檢查 J0~J5 是否在 target_deg ± tol_deg 內（差值以 ±360° 等價處理）。
-    預設拒絕：讀不到六軸角度、角度不是有限值、任一軸超差，一律回傳 False。回傳 (ok, lines)。
+    以 RTDE 量到的六軸角度 [rad] 檢查 J0~J5 是否在 poses[pose] ± tol_deg 內（差值以 ±360° 等價處理）。
+    預設拒絕：pose 不在 poses、讀不到六軸角度、角度不是有限值、任一軸超差，一律回傳 False。回傳 (ok, lines)。
     """
+    if pose not in poses:
+        return False, [f"未知的姿態 POSE = {pose!r}（可用：{', '.join(poses)}），拒絕執行"]
     if q_full_rad is None or len(q_full_rad) != 6:
         return False, ["讀不到六軸角度，拒絕執行"]
-    lines, ok = [f"開始姿態（診斷原點）：J0~J5 期望 {list(target_deg)}°，容差 ±{tol_deg}°"], True
+    target_deg = poses[pose]["q_deg"]
+    lines, ok = [f"姿態 {pose}：J0~J5 期望 {list(target_deg)}°，容差 ±{tol_deg}°"], True
     for j, tgt in enumerate(target_deg):
         x = _finite_float(q_full_rad[j])
         cur = math.degrees(x) if x is not None else float("nan")
@@ -388,7 +418,7 @@ def build_urscript(segs, direction, joint_index, q_others, accel, decel,
     if end_deg is not None:
         q_e = list(q_others)
         q_e[joint_index] = math.radians(end_deg)
-        lines.append("  # return to home J1")
+        lines.append("  # return to start J1")
         lines.append(f"  movej([{', '.join(f'{v:.6f}' for v in q_e)}], a={movej_accel}, v={movej_vel})")
         lines.append(f"  sleep({pause_time})")
     lines.append("end")
@@ -670,13 +700,14 @@ def analyze_angle_window(csv_path, joint_index, kt_out, direction, speed_levels,
     return out
 
 
-def combine_directions(res_pos, res_neg, kt_out=KT_OUT):
+def combine_directions(res_pos, res_neg, kt_out=KT_OUT, tm_min=2.0):
     """
-    正轉（+1）、反轉（−1）的 analyze_angle_window 結果合併（兩者須為同一個窗口）：
+    正轉（+1）、反轉（−1）的 analyze_angle_window 結果合併（兩者須為同一個姿態、同一個窗口）：
       Tc = (C₊ + C₋)/2，H̄ = (C₊ − C₋)/2，B = (B₊ + B₋)/2；± 由兩次單輪回歸的標準差合成。
-    H̄：量到的窗口平均重力保持力矩（電流 × kt_out）。tm_win：控制器 target_moment 的窗口平均（兩方向所有段）。
-      K_mean  = kt_out × tm_win ÷ H̄
-      K_slope = kt_out × （target_moment 對角度的斜率）÷（tau 對角度的斜率）—— 只用窗口內重力的變化，與摩擦無關
+    H̄：量到的窗口平均重力保持力矩（電流 × kt_out）；UP 的窗口中心為重力零點，H̄ 應約為 0（C₊ ≈ C₋）。
+    tm_win：控制器 target_moment 的窗口平均（兩方向所有段）。
+      K_mean  = kt_out × tm_win ÷ H̄（|tm_win| < tm_min 時不算，例如 UP）
+      K_slope = kt_out × （target_moment 對角度的斜率）÷（tau 對角度的斜率）—— 兩方向平均，只用窗口內重力的變化
     兩者都假設控制器的重力模型正確，只作 J1 換算比例的參考（推測），不是校正。
     """
     for r, name in ((res_pos, "正轉"), (res_neg, "反轉")):
@@ -691,16 +722,20 @@ def combine_directions(res_pos, res_neg, kt_out=KT_OUT):
     tm_win = float(np.mean([s["tm_mean"] for s in segs]))
     s_tau = float(np.mean([s["slope_tau"] for s in segs]))
     s_tm = float(np.mean([s["slope_tm"] for s in segs]))
+    use_mean = math.isfinite(tm_win) and abs(tm_win) >= tm_min and abs(out["H"]) > 1e-9
     out.update(tm_win=tm_win, slope_tau=s_tau, slope_tm=s_tm,
-               K_mean=kt_out * tm_win / out["H"] if math.isfinite(tm_win) and abs(out["H"]) > 1e-9 else float("nan"),
+               K_mean=kt_out * tm_win / out["H"] if use_mean else float("nan"),
                K_slope=kt_out * s_tm / s_tau if math.isfinite(s_tm) and abs(s_tau) > 1e-9 else float("nan"))
     print(f"[兩方向合併] B = {out['B']:.3f} ± {out['sd_B']:.3f}（正轉 {out['B_pos']:.3f}、反轉 {out['B_neg']:.3f}）")
+    print(f"  正轉 C₊ = {cp:.3f}，反轉 C₋ = {cn:.3f}")
     print(f"  Tc = {out['Tc']:.3f} ± {sd_c:.3f}，窗口平均重力保持力矩 H̄ = {out['H']:+.3f} ± {sd_c:.3f} N·m"
           f"（電流 × {kt_out:.2f}；± 為單輪回歸的標準差合成）")
     if math.isfinite(tm_win):
-        print(f"  控制器 target_moment 窗口平均 {tm_win:+.3f} N·m → K_mean = {out['K_mean']:.2f} N·m/A；"
-              f"對角度斜率 tau {s_tau:+.4f}、target_moment {s_tm:+.4f} N·m/° → K_slope = {out['K_slope']:.2f} N·m/A")
-        print("  （推測用：假設控制器的重力模型正確）")
+        print(f"  控制器 target_moment 窗口平均 {tm_win:+.3f} N·m"
+              + (f" → K_mean = {out['K_mean']:.2f} N·m/A" if use_mean
+                 else f"（絕對值小於 {tm_min} N·m，不以平均值估換算比例）"))
+        print(f"  對角度斜率 tau {s_tau:+.4f}、target_moment {s_tm:+.4f} N·m/° → K_slope = {out['K_slope']:.2f} N·m/A")
+        print("  （換算比例為推測用：假設控制器的重力模型正確）")
     return out
 
 
@@ -722,12 +757,18 @@ def main():
     print("=" * 70)
     print(" J1 固定角度窗口定速實驗：安全檢查")
     print("=" * 70)
-    print(f"方向: {'+1（J1 角度增加，手臂下降）' if DIRECTION > 0 else '-1（J1 角度減少，手臂往上抬）'}")
+    print(f"姿態: {POSE}")
+    print(f"方向: {'+1（J1 角度增加，上臂往前傾）' if DIRECTION > 0 else '-1（J1 角度減少，上臂往後仰）'}")
     print(f"負載: PAYLOAD_KG = {PAYLOAD_KG}")
+    if POSE not in POSES:
+        print(f"\n[中止] 未知的姿態 POSE = {POSE!r}（可用：{', '.join(POSES)}）。")
+        return
+    pose_q = POSES[POSE]["q_deg"]
+    end_deg = pose_q[JOINT_INDEX]                      # 全部段跑完後 J1 回到開始角度
 
     levels, order, n_revs = stage_config(TEST_STAGE)
     speeds = speed_sequence(levels, order)
-    theta_a, theta_b = window_bounds_deg(WINDOW_CENTER_DEG, n_revs, GEAR_RATIO)
+    theta_a, theta_b = window_bounds_deg(POSES[POSE]["center_deg"], n_revs, GEAR_RATIO)
     segs = plan_segments(speeds, DIRECTION, theta_a, theta_b, SPEEDJ_ACCEL, STOPJ_DECEL,
                          SETTLE_TIME, OVERRUN_DEG, LOOP_TIME_FACTOR, DT)
     print(f"模式: {TEST_STAGE}，速度順序: {[f'{v:.2f}' for v in speeds]}")
@@ -735,7 +776,7 @@ def main():
 
     ok, report, (lo_plan, hi_plan) = safety_check(
         segs, QD_MAX, QDD_CHECK_LIMIT, SPEEDJ_ACCEL, STOPJ_DECEL, MOVEJ_VEL, MOVEJ_ACCEL,
-        J1_SAFE_MIN_DEG, J1_SAFE_MAX_DEG, SAFETY_MARGIN_DEG, end_deg=END_J1_DEG)
+        J1_SAFE_MIN_DEG, J1_SAFE_MAX_DEG, SAFETY_MARGIN_DEG, pose_q, end_deg=end_deg)
     print("\n".join(report))
     payload_ok, payload_msg = check_payload_setting(PAYLOAD_KG)
     print(payload_msg + ("  [OK]" if payload_ok else "  [FAIL]"))
@@ -751,12 +792,15 @@ def main():
         print("\n[中止] 找不到 rtde_receive，僅完成離線設計檢查。")
         return
 
-    pts = [s["start_deg"] for s in segs] + [s["extreme_deg"] for s in segs] + [END_J1_DEG]
-    print(f"\n[注意] 六軸須先以教導器擺到診斷原點 {list(START_Q_DEG)}°（程式不會擺姿態）。")
-    print(f"       J1 會在 {min(pts):.1f}° 至 {max(pts):.1f}° 之間來回（角度減少時手臂往回抬），"
-          f"法蘭離底座安裝面最高約 {flange_height(min(pts)):.2f} m，結束時回到 {END_J1_DEG:.0f}°。")
-    print("       請確認手臂上方與底座後方淨空、J1 附近線材不會被拉扯；連上 RTDE 後會再以實際角度檢查六軸。")
-    if input("已確認，輸入 J1 繼續：").strip() != "J1":
+    pts = [s["start_deg"] for s in segs] + [s["extreme_deg"] for s in segs] + [end_deg]
+    zs = [flange_height(a, pose_q) for a in np.linspace(min(pts), max(pts), 41)]
+    print(f"\n[注意] 六軸須先以教導器擺到姿態 {POSE} {list(pose_q)}°（程式不會擺姿態）。")
+    print(f"       J1 會在 {min(pts):.1f}° 至 {max(pts):.1f}° 之間來回（J1 = −90° 時上臂直立）：上臂最多往後仰 "
+          f"{max(-90.0 - min(pts), 0.0):.1f}°、往前傾 {max(max(pts) + 90.0, 0.0):.1f}°，"
+          f"法蘭離底座安裝面 {min(zs):.2f}～{max(zs):.2f} m，結束時回到 {end_deg:.0f}°。")
+    print("       請確認手臂擺動範圍（上方、前方與底座後方）淨空、J1 附近線材不會被拉扯；"
+          "連上 RTDE 後會再以實際角度檢查六軸。")
+    if input(f"已確認，輸入 {POSE} 繼續：").strip() != POSE:
         print("已取消。")
         return
 
@@ -767,13 +811,14 @@ def main():
         print("\n[中止] 負載確認未通過，未送出任何軌跡。")
         return
 
-    print(f"\n即將對 IP={ROBOT_IP} 送出軌跡，關節 J{JOINT_INDEX}，方向 {DIRECTION:+d}，共 {len(segs)} 段，"
+    print(f"\n即將對 IP={ROBOT_IP} 送出軌跡，關節 J{JOINT_INDEX}，姿態 {POSE}，方向 {DIRECTION:+d}，共 {len(segs)} 段，"
           f"負載 {PAYLOAD_KG} kg。")
     print("*** 送出後 Ctrl+C 會送出 stopj，但最可靠的仍是緊急停止按鈕 ***")
     input("按 Enter 繼續，或 Ctrl+C 取消...")
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    tag = f"{'pos' if DIRECTION > 0 else 'neg'}_{payload_tag(PAYLOAD_KG)}_{TEST_STAGE.lower()}_{ts}"
+    tag = (f"{POSE.lower()}_{'pos' if DIRECTION > 0 else 'neg'}_{payload_tag(PAYLOAD_KG)}_"
+           f"{TEST_STAGE.lower()}_{ts}")
     session_dir = os.path.join(OUTPUT_DIR, f"j1constvel_{tag}")
     os.makedirs(session_dir, exist_ok=True)
     csv_path = os.path.join(session_dir, f"j1constvel_data_{tag}.csv")
@@ -787,7 +832,7 @@ def main():
         print("       未送出任何軌跡，手臂未動作。")
         return
 
-    pose_ok, pose_lines = check_pose(logger.last_q_full)
+    pose_ok, pose_lines = check_pose(logger.last_q_full, POSE)
     print("\n[姿態檢查（RTDE 實際角度）]\n" + "\n".join(pose_lines))
     if not pose_ok:
         logger.stop()
@@ -812,8 +857,8 @@ def main():
 
     script_text = build_urscript(segs, DIRECTION, JOINT_INDEX, logger.last_q_full,
                                  SPEEDJ_ACCEL, STOPJ_DECEL, MOVEJ_ACCEL, MOVEJ_VEL, PAUSE_TIME, DT,
-                                 end_deg=END_J1_DEG)
-    est_total = estimate_total_time(segs, q1_deg, STOPJ_DECEL, end_deg=END_J1_DEG)
+                                 end_deg=end_deg)
+    est_total = estimate_total_time(segs, q1_deg, STOPJ_DECEL, end_deg=end_deg)
 
     status, elapsed, motion_span = "unknown", 0.0, 0.0
     try:
@@ -853,7 +898,7 @@ def main():
         print("\n[警告] 執行中教導器速度滑桿曾低於 100% 或讀不到（見摘要），這次的資料不可用。")
 
     with open(info_path, "w", encoding="utf-8") as f:
-        f.write(f"方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n負載 PAYLOAD_KG: {PAYLOAD_KG} kg\n")
+        f.write(f"姿態: {POSE}\n方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n負載 PAYLOAD_KG: {PAYLOAD_KG} kg\n")
         f.write(f"速度順序: {speeds}\n")
         f.write(f"角度窗口: {theta_a:.4f} 至 {theta_b:.4f} deg（{n_revs} 個馬達圈）\n")
         f.write(f"規劃範圍（含餘裕）: {lo_plan:.3f} 至 {hi_plan:.3f} deg\n")
@@ -877,6 +922,8 @@ def main():
               f"analyze_angle_window(反轉 csv, {JOINT_INDEX}, KT_OUT, -1, SPEED_LEVELS, {theta_a:.4f}, {theta_b:.4f}))")
     else:
         print("\n下一步：QUICK 只確認動作（1 段，不回歸）；正、反轉都確認後再跑 MID。")
+    if POSE != "DIAG":
+        print(f"\n[提醒] J2~J5 仍在姿態 {POSE}（UP 時 J2 = 0°），全部跑完後請以教導器移回診斷原點。")
 
 
 if __name__ == "__main__":
