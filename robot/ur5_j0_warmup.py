@@ -90,7 +90,7 @@ J0_SAFE_MIN_DEG = None
 J0_SAFE_MAX_DEG = None
 TEMP_ABORT_C = None           # J0 溫度上限 [°C]，由操作者依手冊與現場決定
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outputs")   # 存到專案根目錄的 outputs/，不和程式混在一起
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")   # 存到這支程式所在資料夾裡的 outputs/，與執行時終端機在哪個資料夾無關
 
 
 # ============================================================
