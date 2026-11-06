@@ -17,8 +17,9 @@ J1 速度調變實驗（robot/ur5_j1_velocity_modulation_ident.py）的離線測
 5. URScript：縮排規則、只含 ASCII、speedj 只有 J1 非零、movej 只改 J1、最後回到 −90°、角度保護方向正確。
 6. main()：視窗未設定、姿態不符、未輸入姿態名稱、負載不符、速度滑桿不是 100% 時都在送出前中止；
    QUICK 端對端自動命名（j1velmod_data_up_p130_pos_quick_…），資料存在 OUTPUT_DIR。
-7. 分析（合成資料：J = 6.0、重力 66.8·sin(q + 92°) N·m、J0 實測的漣波、白雜訊 + 慢變雜訊、伺服延遲 3 ms）：
-   兩個方向各條件都找回 J；「重力改為各段斜率」也找回 J；「無重力項」時 1 Hz 的 J 明顯偏低（> 1.0）；
+7. 分析（合成資料：J = 6.0、重力 −66.8·sin(q + 92°) N·m（手臂朝上像倒立的擺，正負號同 11/5 實測）、
+   J0 實測的漣波、白雜訊 + 慢變雜訊、伺服延遲 3 ms）：
+   兩個方向各條件都找回 J；「重力改為各段斜率」也找回 J；「無重力項」時 1 Hz 的 J 明顯偏高（多 1.0 以上）；
    target_moment（含重力）回歸找回 J_model；QUICK 只列各段、不當機。
 """
 
@@ -254,7 +255,8 @@ class TestMain(Base):
 # ------------------------------------------------------------
 
 J_TRUE, TC_TRUE, B_TRUE, C_TRUE = 6.0, 11.0, 30.0, -10.0
-M_GRAV, Q_ZERO = 66.8, math.radians(-92.0)            # 重力力矩 = M·sin(q − q0)：UP 時斜率約 67 N·m/rad
+M_GRAV, Q_ZERO = -66.8, math.radians(-92.0)           # 重力力矩 = M·sin(q − q0)：UP 像倒立的擺，斜率約 −67 N·m/rad
+#                                                       （11/5 實測 target_moment −1.165 N·m/° = −66.8 N·m/rad）
 LSB = 1.192e-5
 RIPPLE = {+1: [(2, -0.212, 0.579), (5, -0.164, -1.051), (10, 0.453, 0.077), (12, -0.54, 0.738)],
           -1: [(2, -0.315, 0.027), (5, 0.133, 1.068), (10, -0.385, 0.005), (12, 0.48, -0.734)]}
@@ -369,12 +371,12 @@ class TestAnalysis(unittest.TestCase):
             self.assertAlmostEqual(r["J_mean"], J_TRUE, delta=0.05, msg=msg)
 
     def test_gravity_coupling_without_model(self):
-        """不放重力項時，1 Hz 的 J 明顯偏低（角度振盪的部分約 K_g/ω² ≈ 1.7，K_g ≈ 66.8 N·m/rad；
-        段內重力的慢變化也混入）：重力項不可省略。"""
+        """不放重力項時，1 Hz 的 J 明顯偏高（重力對角度的斜率 K_g ≈ −66.8 N·m/rad，角度振盪的部分約
+        −K_g/ω² ≈ +1.7；段內重力的慢變化也混入；11/5 實測 +2.1～+2.4）：重力項不可省略。"""
         m, r = self.result("pos", d=+1)
         for ci in (0, 4):                                   # 1 Hz 的兩個條件
             bias = r["conditions"][ci]["J_variants"]["無重力項（只看影響）"] - J_TRUE
-            self.assertLess(bias, -1.0, f"條件 {ci + 1}：偏差 {bias:.3f}")
+            self.assertGreater(bias, 1.0, f"條件 {ci + 1}：偏差 {bias:.3f}")
 
     def test_target_moment_model(self):
         _, r = self.result("model", d=-1, model=(8.1, 0.5))
