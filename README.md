@@ -194,7 +194,7 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 
 需要 numpy、matplotlib。資料與輸出路徑寫在 `report_figs_1111.py` 開頭（`DATA`、`OUT`）；另讀 `analysis_1104/current_signals_1104.json`（10/29 的直線，先執行 `../1104/current_signals_1104.py`）。執行時封鎖網路。
 
-- `report_figs_1111.py`：11/5 上機（手臂朝上 `UP`）的分析與 11/11 報告圖——J0 速度調變的 `J` 與 10/29 直線在 `UP` 的預測、控制器 `J_model`；J1 定速正反轉的窗口平均力矩（`B`、`Tc`）；J1 速度調變各條件兩個方向的 `J`。分析用 `robot/` 內的分析函式，結果快取在 `OUT/results_1105.json`。
+- `report_figs_1111.py`：11/5 上機（手臂朝上 `UP`）的分析與 11/11 報告圖——圖 1：J1 定速正反轉的窗口平均力矩（`B`、`Tc`）；圖 2：J1 速度調變各條件兩個方向的 `J`。另存（報告不放）：J0 速度調變的 `J` 與 10/29 直線在 `UP` 的預測、控制器 `J_model`。分析用 `robot/` 內的分析函式，結果快取在 `OUT/results_1105.json`。
 
 ## MATLAB 分析（R2025a）
 

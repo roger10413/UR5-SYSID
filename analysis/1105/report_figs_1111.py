@@ -1,9 +1,10 @@
 """11/11 報告的圖（11/5 上機，手臂朝上 UP）。
-圖 1：J0 手臂朝上的 J，和上週直線 J = c·X + J_d（10/29 反轉 4 次，actual_current）在 X_UP 的預測並排，加控制器 J_model。
-圖 2：J1 定速，正轉與反轉（取絕對值）的窗口平均力矩對速度：重疊表示窗口內重力抵消。
-圖 3：J1 速度調變，各條件兩個方向的 J，加控制器 J_model。
+圖 1：J1 定速，正轉與反轉（取絕對值）的窗口平均力矩對速度：重疊表示窗口內重力抵消。
+圖 2：J1 速度調變，各條件兩個方向的 J，加控制器 J_model。
+另存（報告不放，自己記錄）：J0 手臂朝上的 J，和上週直線 J = c·X + J_d（10/29 反轉 4 次，actual_current）
+在 X_UP 的預測並排，加控制器 J_model。
 分析用 robot/ 內的分析函式（不執行任何 main，不連網路）；結果存 OUT/results_1105.json（已存在時直接讀取）。
-輸出 OUT/figs/w1111_fig*.png。（Microsoft JhengHei 沒有「−」，數值用 ASCII 負號。）"""
+輸出 OUT/figs/w1111_fig*.png、w1111_j0_up_prediction.png。（Microsoft JhengHei 沒有「−」，數值用 ASCII 負號。）"""
 import socket
 socket.socket = None                                   # 離線分析：不連網路
 import os, sys, io, json, glob, math, contextlib
@@ -82,7 +83,7 @@ def style(ax):
     ax.grid(axis="y", alpha=1, ls=(0, (4, 3))); ax.set_axisbelow(True)
 
 
-# ---------------- 圖 1：J0 手臂朝上，預測 vs 實測 ----------------
+# ---------------- J0 手臂朝上，預測 vs 實測（報告不放，自己記錄） ----------------
 X_UP = float(am.mass_matrix(np.radians(am.POSES["UP"]), PAY, rotor=np.zeros(6))[0, 0])
 A = json.load(open(r"D:\cluade_code\ur5\analysis_1104\current_signals_1104.json", encoding="utf-8"))["A"]
 ac = A["actual_current"]
@@ -110,16 +111,16 @@ ax.set_xticks(x); ax.set_xticklabels(labels0, fontsize=10.5)
 ax.set_xlim(-0.6, 5.6); ax.set_ylim(0, 2.45)
 ax.set_ylabel("J0 [kg·m²]")
 style(ax)
-ax.set_title("圖 1　手臂朝上的 J0：實測和上週預測一致，遠低於控制器的 2.10", loc="left", fontsize=13.5, pad=12, color=INK)
+ax.set_title("手臂朝上的 J0：實測和上週預測一致，遠低於控制器的 2.10", loc="left", fontsize=13.5, pad=12, color=INK)
 fig.text(0.01, 0.005, f"預測：上週 4 次（DIAG、EXT45 × 夾或不夾，10/29 反轉）的直線 J = c·X + J_d 在 X = {X_UP:.2f} 的值。"
          f"實測：11/5 正轉，每個條件 7 段，誤差棒為單輪回歸的標準差。\n電流若含 1.915，J 會在 "
          f"{pred_rotor.min():.1f}～{pred_rotor.max():.1f}（= c × ({X_UP:.2f} + 1.915)）。",
          ha="left", va="bottom", fontsize=9, color=INK2, linespacing=1.5)
 fig.tight_layout(rect=(0, 0.06, 1, 1))
-f1 = os.path.join(FIGS, "w1111_fig1_j0_up_prediction.png")
-fig.savefig(f1, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
+f0 = os.path.join(FIGS, "w1111_j0_up_prediction.png")
+fig.savefig(f0, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
 
-# ---------------- 圖 2：J1 定速，正反轉重疊 ----------------
+# ---------------- 圖 1：J1 定速，正反轉重疊 ----------------
 cv = R["j1_constvel"]
 fig, ax = plt.subplots(figsize=(10, 5.9))
 for tag, col, mk, lab in (("pos", BLUE, "o", "正轉"), ("neg", ORANGE, "s", "反轉（取絕對值）")):
@@ -137,16 +138,16 @@ ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.02), frameon=False, fontsize=
 ax.set_xlim(0, 0.215); ax.set_ylim(9.0, 13.6)
 ax.set_xlabel("J1 速度 [rad/s]"); ax.set_ylabel("窗口平均力矩（電流 × 13.64）[N·m]")
 style(ax); ax.grid(axis="x", alpha=1, ls=(0, (4, 3)))
-ax.set_title("圖 2　J1 定速：正、反轉的力矩重疊 → 重力在窗口內抵消，量到的就是摩擦", loc="left", fontsize=13.5,
+ax.set_title("圖 1　J1 定速：正、反轉的力矩重疊 → 重力在窗口內抵消，量到的就是摩擦", loc="left", fontsize=13.5,
              pad=12, color=INK)
 fig.text(0.01, 0.005, "手臂朝上，窗口 -102.7°～-81.3°（6 個馬達圈，中心 -92° 為重力零點）；"
          "每個方向 6 檔速度先升後降共 12 段，每點為一段的平均。±：單輪回歸的標準差合成。",
          ha="left", va="bottom", fontsize=9, color=INK2)
 fig.tight_layout(rect=(0, 0.04, 1, 1))
-f2 = os.path.join(FIGS, "w1111_fig2_j1_constvel.png")
-fig.savefig(f2, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
+f1 = os.path.join(FIGS, "w1111_fig1_j1_constvel.png")
+fig.savefig(f1, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
 
-# ---------------- 圖 3：J1 速度調變 ----------------
+# ---------------- 圖 2：J1 速度調變 ----------------
 order = sorted(range(6), key=lambda i: (v1.CONDITIONS[i][0], v1.CONDITIONS[i][1]))
 jp, jn = R["j1_velmod_pos"], R["j1_velmod_neg"]
 jm1 = 0.5 * (jp["J_model"] + jn["J_model"])
@@ -162,20 +163,19 @@ for k, (d, col, lab, sh) in enumerate(((jp, BLUE, "正轉", -1), (jn, ORANGE, "�
         ax.text(xx[i], J[i] - 0.3, f"{J[i]:.2f}", ha="center", va="top", fontsize=10.5, color="white",
                 fontweight="bold", zorder=6)
 ax.axhline(jm1, color=INK, lw=1.8, ls=(0, (6, 4)), zorder=5)
-ax.text(-0.45, jm1 + 0.2, f"控制器 J_model = {jm1:.2f}\n（連桿與負載 {X1:.2f} + 1.915）", ha="left", va="bottom",
-        fontsize=11.5, color=INK, linespacing=1.5)
+ax.text(-0.45, jm1 + 0.2, f"控制器 J_model = {jm1:.2f}", ha="left", va="bottom", fontsize=11.5, color=INK)
 ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.0), frameon=False, fontsize=11.5, ncol=2)
 ax.set_xticks(x); ax.set_xticklabels([f"{v1.CONDITIONS[i][0]:g} Hz × {v1.CONDITIONS[i][1]:g}" for i in order],
                                      fontsize=10.5)
 ax.set_xlim(-0.6, 5.6); ax.set_ylim(0, 9.4)
 ax.set_ylabel("J1 [kg·m²]")
 style(ax)
-ax.set_title("圖 3　J1 速度調變：兩個方向的 J 一致", loc="left", fontsize=13.5, pad=12, color=INK)
+ax.set_title("圖 2　J1 速度調變：兩個方向的 J 一致", loc="left", fontsize=13.5, pad=12, color=INK)
 fig.text(0.01, 0.005, "手臂朝上，調變段中心在重力零點 -92°，巡航 0.08 rad/s，每個條件 7 段。電流 × 13.64；"
          "分析含重力項。誤差棒為單輪回歸的標準差。", ha="left", va="bottom", fontsize=9, color=INK2)
 fig.tight_layout(rect=(0, 0.04, 1, 1))
-f3 = os.path.join(FIGS, "w1111_fig3_j1_velmod.png")
-fig.savefig(f3, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
+f2 = os.path.join(FIGS, "w1111_fig2_j1_velmod.png")
+fig.savefig(f2, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
 
 # ---------------- 數字（講解頁、講稿用） ----------------
 print("X_UP J0 =", round(X_UP, 4), " J0 J_model UP =", round(jm0, 4), " J0 溫度", round(R["j0_up"]["temp"], 2))
@@ -192,5 +192,5 @@ for tag, d, sgn in (("pos", jp, +1), ("neg", jn, -1)):
     print(f"J1 速度調變 {tag}: J {[round(j, 3) for j in d['J']]}  ± {[round(s, 3) for s in d['se']]}"
           f"  追隨增益 {[round(g, 3) for g in d['gain']]}  重力斜率 {min(sl):+.3f}～{max(sl):+.3f} N·m/°")
 print("J1 定速", {k: round(x, 4) for k, x in cv.items()})
-for f in (f1, f2, f3):
+for f in (f1, f2, f0):
     print(f)
