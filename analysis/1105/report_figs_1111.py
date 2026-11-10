@@ -123,10 +123,16 @@ fig.savefig(f0, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
 # ---------------- 圖 1：J1 定速，正反轉重疊 ----------------
 cv = R["j1_constvel"]
 fig, ax = plt.subplots(figsize=(10, 5.9))
-for tag, col, mk, lab in (("pos", BLUE, "o", "正轉"), ("neg", ORANGE, "s", "反轉（取絕對值）")):
+# 每個方向每檔速度有升、降兩段：畫兩段的平均；正、反轉左右錯開一點，才不會互相蓋住
+spread = 0.0                                           # 同一檔速度升、降兩段的最大差
+for tag, col, mk, lab, dx in (("pos", BLUE, "o", "正轉", -0.0022), ("neg", ORANGE, "s", "反轉（取絕對值）", +0.0022)):
     d = R[f"j1_constvel_{tag}"]
-    ax.scatter(np.abs(d["qd"]), np.abs(d["tau"]), s=70, marker=mk, color=col, edgecolor="white", linewidth=1.8,
-               zorder=4, label=lab)
+    qd, tau = np.round(np.abs(d["qd"]), 2), np.abs(d["tau"])
+    vs = np.unique(qd)
+    assert len(vs) == 6 and all(np.sum(qd == v) == 2 for v in vs)
+    spread = max(spread, max(np.ptp(tau[qd == v]) for v in vs))
+    ax.scatter(vs + dx, [tau[qd == v].mean() for v in vs], s=70, marker=mk, color=col, edgecolor="white",
+               linewidth=1.8, zorder=4, label=lab)
 vv = np.linspace(0, 0.21, 20)
 ax.plot(vv, cv["Tc"] + cv["B"] * vv, color=INK, lw=1.6, zorder=3)
 ax.text(0.205, 9.35, f"零速截距：正轉 {cv['Tc'] + cv['H']:.2f}、反轉 {cv['Tc'] - cv['H']:.2f}\n"
@@ -138,12 +144,14 @@ ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.02), frameon=False, fontsize=
 ax.set_xlim(0, 0.215); ax.set_ylim(9.0, 13.6)
 ax.set_xlabel("J1 速度 [rad/s]"); ax.set_ylabel("窗口平均力矩（電流 × 13.64）[N·m]")
 style(ax); ax.grid(axis="x", alpha=1, ls=(0, (4, 3)))
-ax.set_title("圖 1　J1 定速：正、反轉的力矩重疊 → 重力在窗口內抵消，量到的就是摩擦", loc="left", fontsize=13.5,
+ax.set_title("圖 1　J1 定速：正、反轉的力矩落在同一條線上 → 重力在窗口內抵消，量到的就是摩擦", loc="left", fontsize=13.5,
              pad=12, color=INK)
 fig.text(0.01, 0.005, "手臂朝上，窗口 -102.7°～-81.3°（6 個馬達圈，中心 -92° 為重力零點）；"
-         "每個方向 6 檔速度先升後降共 12 段，每點為一段的平均。±：單輪回歸的標準差合成。",
-         ha="left", va="bottom", fontsize=9, color=INK2)
-fig.tight_layout(rect=(0, 0.04, 1, 1))
+         "每個方向 6 檔速度先升後降共 12 段。\n"
+         f"每點為同一檔速度升、降兩段的平均（兩段最多相差 {spread:.2f} N·m）；"
+         "正、反轉的點左右錯開以免重疊。±：單輪回歸的標準差合成。",
+         ha="left", va="bottom", fontsize=9, color=INK2, linespacing=1.5)
+fig.tight_layout(rect=(0, 0.06, 1, 1))
 f1 = os.path.join(FIGS, "w1111_fig1_j1_constvel.png")
 fig.savefig(f1, dpi=150, bbox_inches="tight", pad_inches=0.15); plt.close(fig)
 
