@@ -201,6 +201,7 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 
 - `constvel_rounds.py`：固定角度窗口定速各次的 `B`、`Tc`、升降趟、力矩對角度斜率、正反轉差。
 - `accel_v3_analysis.py`：定加速度 v3 標準算法、含截距回歸 `J`（bootstrap 誤差）、換階段跳過時間敏感度。
+- `check_intercept.py`：含截距回歸 `J` 的離線檢查：電流與速度的時間對齊、時間錯位敏感度、共同速度範圍、Δ 對速度與加速度、拿掉一檔、換階段步階、速度範圍組合。
 - `report_figs_1013.py`：報告圖（需 matplotlib 與中文字型 Microsoft JhengHei）。
 - 資料路徑寫在 `BASE`，請改成自己的資料夾（內含各次實驗的 `constvel_angle_*`、`constaccel_v3_*` 子資料夾）。
 

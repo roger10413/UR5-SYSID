@@ -91,7 +91,7 @@ axs[1].set_xlabel("加速度 a [rad/s²]"); axs[1].set_ylabel("J [kg·m²]")
 axs[1].set_title("標準算法各檔 J；實線 = J + 截距/a，虛線 = 含截距回歸的 J"); axs[1].legend(fontsize=9, loc="lower right"); axs[1].grid(alpha=0.2)
 fig.tight_layout(); fig.savefig(os.path.join(OUT, "fig4_v3_J.png"), dpi=140); plt.close(fig)
 
-# ---------- 圖 5：殘差對起步後行程 ----------
+# ---------- 圖 5：殘差對起步後行程（各循環以自己的起點計算，扣除起始錯開） ----------
 fig, axs = plt.subplots(1, 2, figsize=(12.5, 4.6), sharey=True)
 for ax, o in zip(axs, acc):
     s = o["s"]; J = o["res"][0.04]["p"][0]
@@ -104,16 +104,21 @@ for ax, o in zip(axs, acc):
         for i in np.where(np.diff(msk.astype(int)) == 1)[0] + 1: msk[i:i + 5] = False
         ph[k] = msk
     res = tau - av.fcv(qd, s) - J * np.where(ph["定速段"], 0, dtq)
-    trav = np.abs(q - 180.0); edges = np.arange(0, 31, 2)
+    d1 = np.diff(tq, prepend=tq[0])                  # 循環起點：target 開始從 0 上升的前一個樣本
+    starts = [r[0] - 1 for r in av.m._runs((d1 > 1e-6) & (tq > 1e-3)) if tq[r].max() > 0.2 and (r[0] < 2 or tq[r[0] - 2] < 1e-3)]
+    trav = np.full(len(q), np.nan)
+    for i0, i1 in zip(starts, starts[1:] + [len(q)]):
+        trav[i0:i1] = s * (q[i0:i1] - q[i0])
+    edges = np.arange(0, 27, 2)
     for (k, msk), col in zip(ph.items(), ["#3a9e5c", "#888888", "#b5397a"]):
         xs, ys = [], []
         for lo in edges[:-1]:
             sm = msk & (trav >= lo) & (trav < lo + 2)
             if sm.sum() > 40: xs.append(lo + 1); ys.append(np.mean(res[sm]))
         ax.plot(xs, ys, "o-", color=col, label=k, ms=5)
-    ax.axhline(0, color="k", lw=0.6); ax.grid(alpha=0.2); ax.set_xlabel("起步後行程 |q - 180°| [°]")
+    ax.axhline(0, color="k", lw=0.6); ax.grid(alpha=0.2); ax.set_xlabel("每次循環起步後行程 [°]（已扣除起始錯開）")
     ax.set_title(f"{o['name']}（J = {J:.2f}）"); ax.legend(fontsize=9)
 axs[0].set_ylabel("|τ| - 同日定速摩擦 - J·a [N·m]")
-fig.suptitle("定加速度 v3 殘差：同一行程下，減速段仍比定速段高約 0.5 N·m", fontsize=12)
+fig.suptitle("定加速度 v3 殘差對起步後行程：同一行程下，減速段仍比定速段高約 0.5～0.7 N·m", fontsize=12)
 fig.tight_layout(); fig.savefig(os.path.join(OUT, "fig5_v3_residual_travel.png"), dpi=140); plt.close(fig)
 print("figs ->", OUT)
