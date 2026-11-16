@@ -86,9 +86,10 @@ def answers(default="UP", payload=str(PAYLOAD)):
     return lambda prompt="", *a, **k: payload if "負載質量" in str(prompt) else default
 
 
-def plan(m, stage, d):
-    conds, n = m.stage_config(stage)
-    return m.plan_segments(conds, n, d, m.V_CRUISE, m.T_MOD, m.SETTLE_TIME, m.RAMP_ACCEL, m.STOPJ_DECEL,
+def plan(m, stage, d, cset="STD"):
+    conds_all, t_mod = m.condition_set(cset)
+    conds, n = m.stage_config(stage, conds_all)
+    return m.plan_segments(conds, n, d, m.V_CRUISE, t_mod, m.SETTLE_TIME, m.RAMP_ACCEL, m.STOPJ_DECEL,
                            m.OVERRUN_DEG, m.POSES["UP"]["center_deg"], m.GEAR_RATIO, m.DT)
 
 
@@ -165,6 +166,62 @@ class TestPlan(Base):
         self.assertFalse(m.check_pose([float("nan")] + UP_Q[1:], "UP")[0])
         self.assertFalse(m.check_pose(None, "UP")[0])
         self.assertFalse(m.check_pose(UP_Q, "DIAG")[0], "未知姿態")
+
+
+class TestLowFrequencySet(Base):
+    """低頻條件組 LOWF（0.5～2 Hz，調變 4 s）。"""
+
+    def test_condition_sets(self):
+        m = load("jv_sets")
+        self.assertEqual(m.CONDITION_SET, "STD", "預設仍是 11/5、11/12 的條件")
+        self.assertEqual(m.condition_set("STD"), (list(m.CONDITIONS), m.T_MOD))
+        conds, t_mod = m.condition_set("LOWF")
+        self.assertEqual(t_mod, 4.0)
+        self.assertEqual(conds[0], m.CONDITIONS[0], "第 1 個條件 = STD 的條件 1（銜接舊資料）")
+        self.assertEqual(sorted(f for f, _ in conds), [0.5, 0.75, 1.0, 1.5, 2.0])
+        for f, a in conds:
+            self.assertAlmostEqual(f * t_mod, round(f * t_mod), places=9, msg="整數個週期")
+            self.assertGreaterEqual(m.V_CRUISE - a, m.V_MIN_ALLOWED - 1e-12, "速度不低於下限")
+            if f >= 1.0:
+                self.assertAlmostEqual(2 * math.pi * f * a, 0.25, delta=0.002, msg="1～2 Hz 加速度振幅相同")
+        with self.assertRaises(ValueError):
+            m.condition_set("FOO")
+
+    def test_lowf_ranges(self):
+        m = load("jv_lowf_plan")
+        for stage, n_seg in (("QUICK", 1), ("MID", 5), ("FULL", 35)):
+            for d in (+1, -1):
+                segs = plan(m, stage, d, "LOWF")
+                self.assertEqual(len(segs), n_seg)
+                for s in segs:
+                    self.assertAlmostEqual(abs(s["mod_end_deg"] - s["mod_start_deg"]),
+                                           math.degrees(m.V_CRUISE * 4.0), places=9)
+                ok, lines, (lo, hi) = safety(m, segs, t_mod=4.0)
+                self.assertTrue(ok, "\n".join(lines))
+                self.assertGreaterEqual(lo, J1CV_FULL[0], f"{stage} {d:+d}")
+                self.assertLessEqual(hi, J1CV_FULL[1], f"{stage} {d:+d}")
+                self.assertLess(abs(segs[0]["start_deg"] - (-90.0)), m.MAX_INITIAL_MOVE_DEG)
+        segs = plan(m, "FULL", +1, "LOWF")
+        self.assertFalse(safety(m, segs, t_mod=3.0)[0], "STD 的 3 s 對 0.5、0.75 Hz 不是整數週期")
+
+    def test_lowf_main(self):
+        m = load("jv_lowf_main")
+        m.J1_SAFE_MIN_DEG, m.J1_SAFE_MAX_DEG = WIN
+        m.CONDITION_SET = "LOWF"
+        scripts, files = TestMain._run(self, m)
+        self.assertEqual(len(scripts), 1)
+        self.assertIn("while (n < 500)", scripts[0], "QUICK = 1 Hz 條件，調變 4 s = 500 個週期")
+        self.assertTrue(any(n.startswith("j1velmod_data_up_p130_lowf_pos_quick_") for n in files), list(files))
+        info = next(v for n, v in files.items() if n.startswith("j1velmod_info_"))
+        self.assertIn("條件組: LOWF", info)
+        self.assertIn("調變時間: 4.0s", info)
+        self.assertIn('CONDITION_SETS["LOWF"]', self.last_out)
+        m2 = load("jv_lowf_bad")
+        m2.J1_SAFE_MIN_DEG, m2.J1_SAFE_MAX_DEG = WIN
+        m2.CONDITION_SET = "FOO"
+        scripts, _ = TestMain._run(self, m2)
+        self.assertEqual(scripts, [])
+        self.assertIn("未知的 CONDITION_SET", self.last_out)
 
 
 class TestURScript(Base):
@@ -343,16 +400,16 @@ class TestAnalysis(unittest.TestCase):
     _cache = {}
 
     @classmethod
-    def result(cls, key, d=+1, stage="FULL", **kw):
+    def result(cls, key, d=+1, stage="FULL", cset="STD", **kw):
         if key not in cls._cache:
             m = load("jv_ana_" + key)
-            segs = plan(m, stage, d)
+            segs = plan(m, stage, d, cset)
             with tempfile.TemporaryDirectory() as tmp:
                 p = os.path.join(tmp, "syn.csv")
                 synth_csv(m, p, d, segs, **kw)
                 with contextlib.redirect_stdout(io.StringIO()):
-                    cls._cache[key] = (m, m.analyze_j1_velocity_modulation(p, 1, m.KT_OUT, d, m.CONDITIONS,
-                                                                            m.V_CRUISE))
+                    cls._cache[key] = (m, m.analyze_j1_velocity_modulation(p, 1, m.KT_OUT, d,
+                                                                            m.condition_set(cset)[0], m.V_CRUISE))
         return cls._cache[key]
 
     def test_recovers_J_with_gravity(self):
@@ -384,6 +441,22 @@ class TestAnalysis(unittest.TestCase):
         for ci, mr in r["model"].items():
             self.assertAlmostEqual(mr["J_model"], 8.1, delta=1e-3, msg=f"條件 {ci + 1}")
         self.assertAlmostEqual(r["J_model_mean"], 8.1, delta=1e-3)
+
+    def test_lowf_recovers_J(self):
+        """LOWF：35 段全部配對到 5 個條件，各條件都找回 J（0.5 Hz 時重力造成的假慣量約 −K_g/ω² ≈ +6.8，
+        重力項放對時仍找回 J）。"""
+        for d in (+1, -1):
+            m, r = self.result("lowf_pos" if d > 0 else "lowf_neg", d=d, cset="LOWF")
+            msg = f"LOWF 方向 {d:+d}"
+            self.assertEqual(len(r["segments"]), 35, msg)
+            self.assertEqual(r["skipped"], 0, msg)
+            self.assertEqual(sorted(r["conditions"]), list(range(5)), msg)
+            for ci, c in r["conditions"].items():
+                cm = f"{msg} 條件 {ci + 1}（{c['freq']} Hz）"
+                self.assertLess(abs(c["J"] - J_TRUE), 3 * c["se_J"] + 0.05, f"{cm}：J = {c['J']:.4f} ± {c['se_J']:.4f}")
+                self.assertAlmostEqual(c["freq_meas"], c["freq"], delta=1e-3, msg=cm)
+            bias = r["conditions"][1]["J_variants"]["無重力項（只看影響）"] - J_TRUE
+            self.assertGreater(bias, 3.0, f"0.5 Hz 不放重力項的偏差 {bias:.2f}")
 
     def test_quick_only_lists_segments(self):
         _, r = self.result("quick", stage="QUICK")

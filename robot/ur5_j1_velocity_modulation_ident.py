@@ -26,6 +26,11 @@ J1（肩關節）是水平軸，多了撐住手臂的重力 H(q1)：
   加速度振幅 2πf·A = 0.25、0.50、0.75、0.25、0.13、0.51 rad/s²。同 J0：條件 1 與 4、條件 2 與 6 加速度振幅相同、
   頻率不同；條件 2 與 4 頻率相同、振幅不同。FULL 每個條件 7 次，第 k 次起點錯開 (k − 3)/7 個馬達圈（漣波平均掉），
   條件依重複輪流執行。
+  條件組 CONDITION_SET = "LOWF"（2026/11/16 新增）：(1 Hz, 0.04)、(0.5 Hz, 0.05)、(0.75 Hz, 0.05)、(1.5 Hz, 0.0265)、
+  (2 Hz, 0.02) rad/s，調變 4 s（調變段長 18.33°），加速度振幅 0.25、0.16、0.24、0.25、0.25 rad/s²。用來檢查 J 隨頻率上升
+  是否來自 4～6 Hz 的彈性模態。FULL 每個方向 35 段、約 5.2 分鐘；所有段的起點與最遠點：正轉 −106.73°～−79.82°，
+  反轉 −104.18°～−77.27°（不含餘裕），仍在 J1 定速 FULL 的範圍內。0.5 Hz 時重力造成的假慣量約 +7 kg·m²，
+  結果非常依賴重力項，只作參考。
 
 角度與動作（J0 = 180°；J1 = −90° 時上臂直立，J1 角度減少往後仰、增加往前傾）：
   - FULL 所有段的起點、角度保護觸發後的最遠點：正轉 −104.4°～−82.2°，反轉 −101.8°～−79.6°（各含錯開量，
@@ -87,9 +92,21 @@ DIRECTION = +1        # +1 = J1 角度增加（上臂往前傾），-1 = J1 角�
 TEST_STAGE = "QUICK"
 
 V_CRUISE = 0.08                  # 巡航速度 [rad/s]
-# (頻率 Hz, 速度振幅 rad/s)：加速度振幅 0.25、0.50、0.75、0.25、0.13、0.51 rad/s²（組合方式同 J0 速度調變）
-CONDITIONS = [(1.0, 0.04), (2.0, 0.04), (3.0, 0.04), (2.0, 0.02), (1.0, 0.02), (3.0, 0.027)]
-T_MOD = 3.0                      # 調變時間 [s]：六個條件都是整數個週期（3、6、9、6、3、9）
+# 條件組（CONDITION_SET）：(頻率 Hz, 速度振幅 rad/s) 的清單與調變時間 T_MOD [s]（每個條件都要整數個週期）
+#   "STD" ：11/5、11/12 上機的 6 個條件（1～3 Hz）；加速度振幅 0.25、0.50、0.75、0.25、0.13、0.51 rad/s²
+#   "LOWF"：低頻（2026/11/16 新增）0.5～2 Hz，檢查 J 隨頻率上升是不是來自 4～6 Hz 的彈性模態
+#           （彈性模態時越低頻越接近真正的 J，紙杯的 ΔJ 也應接近 m·ρ²）。第 1 個條件 = STD 的條件 1（與 11/5、11/12 銜接）；
+#           1～2 Hz 的加速度振幅都是 0.25 rad/s²，只有頻率不同；0.5、0.75 Hz 受最低速度限制（振幅 ≤ 0.05），
+#           為 0.16、0.24 rad/s²。調變 4 s（週期數 4、2、3、6、8），調變段長 V_CRUISE·T_MOD = 18.33°
+CONDITION_SET = "STD"
+CONDITION_SETS = {
+    "STD": dict(conditions=[(1.0, 0.04), (2.0, 0.04), (3.0, 0.04), (2.0, 0.02), (1.0, 0.02), (3.0, 0.027)],
+                t_mod=3.0),
+    "LOWF": dict(conditions=[(1.0, 0.04), (0.5, 0.05), (0.75, 0.05), (1.5, 0.0265), (2.0, 0.02)],
+                 t_mod=4.0),
+}
+CONDITIONS = CONDITION_SETS["STD"]["conditions"]   # 預設（STD）；分析舊資料時直接用
+T_MOD = CONDITION_SETS["STD"]["t_mod"]
 N_REPEAT = 7                     # FULL 每個條件的次數；第 k 次起點錯開 (k − 3)/7 個馬達圈
 
 GEAR_RATIO = 101
@@ -151,14 +168,23 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
 # 第一部分：每段規劃與安全檢查
 # ============================================================
 
-def stage_config(stage):
-    """回傳 (條件清單, 每個條件的次數)。"""
+def condition_set(name):
+    """回傳 (條件清單, 調變時間 T_MOD)；未知的條件組丟 ValueError。"""
+    if name not in CONDITION_SETS:
+        raise ValueError(f"未知的 CONDITION_SET: {name!r}（可用：{', '.join(CONDITION_SETS)}）")
+    cs = CONDITION_SETS[name]
+    return list(cs["conditions"]), float(cs["t_mod"])
+
+
+def stage_config(stage, conditions=None):
+    """回傳 (條件清單, 每個條件的次數)。conditions 為 None 時用 CONDITIONS（STD）。"""
+    conds = list(CONDITIONS if conditions is None else conditions)
     if stage == "QUICK":
-        return list(CONDITIONS[:1]), 1
+        return conds[:1], 1
     if stage == "MID":
-        return list(CONDITIONS), 1
+        return conds, 1
     if stage == "FULL":
-        return list(CONDITIONS), N_REPEAT
+        return conds, N_REPEAT
     raise ValueError(f"未知的 TEST_STAGE: {stage}")
 
 
@@ -1015,16 +1041,22 @@ def main():
         return
     pose_q = POSES[POSE]["q_deg"]
     end_deg = pose_q[JOINT_INDEX]                      # 全部段跑完後 J1 回到開始角度
+    try:
+        set_conds, t_mod = condition_set(CONDITION_SET)
+    except ValueError as e:
+        print(f"\n[中止] {e}")
+        return
+    print(f"條件組: {CONDITION_SET}")
 
-    conds, n_repeat = stage_config(TEST_STAGE)
-    segs = plan_segments(conds, n_repeat, DIRECTION, V_CRUISE, T_MOD, SETTLE_TIME, RAMP_ACCEL, STOPJ_DECEL,
+    conds, n_repeat = stage_config(TEST_STAGE, set_conds)
+    segs = plan_segments(conds, n_repeat, DIRECTION, V_CRUISE, t_mod, SETTLE_TIME, RAMP_ACCEL, STOPJ_DECEL,
                          OVERRUN_DEG, POSES[POSE]["center_deg"], GEAR_RATIO, DT)
     print(f"模式: {TEST_STAGE}，條件 (Hz, rad/s): {conds} × 各 {n_repeat} 次，共 {len(segs)} 段")
-    print(f"巡航 {V_CRUISE} rad/s，調變 {T_MOD} s；調變段 {segs[0]['mod_start_deg']:.3f}° 至 "
+    print(f"巡航 {V_CRUISE} rad/s，調變 {t_mod} s；調變段 {segs[0]['mod_start_deg']:.3f}° 至 "
           f"{segs[0]['mod_end_deg']:.3f}°（第一段），起點錯開 {[round(o, 4) for o in start_offsets_deg(n_repeat)]}°")
 
     ok, report, (lo_plan, hi_plan) = safety_check(
-        segs, V_CRUISE, T_MOD, QD_MAX, QDD_CHECK_LIMIT, V_MIN_ALLOWED, RAMP_ACCEL, MOD_ACCEL_LIMIT,
+        segs, V_CRUISE, t_mod, QD_MAX, QDD_CHECK_LIMIT, V_MIN_ALLOWED, RAMP_ACCEL, MOD_ACCEL_LIMIT,
         STOPJ_DECEL, MOVEJ_VEL, MOVEJ_ACCEL, J1_SAFE_MIN_DEG, J1_SAFE_MAX_DEG, SAFETY_MARGIN_DEG, pose_q,
         end_deg=end_deg)
     print("\n".join(report))
@@ -1063,7 +1095,8 @@ def main():
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dir_label = "pos" if DIRECTION > 0 else "neg"
-    tag = f"{POSE.lower()}_{payload_tag(PAYLOAD_KG)}_{dir_label}_{TEST_STAGE.lower()}_{ts}"
+    set_label = "" if CONDITION_SET == "STD" else f"{CONDITION_SET.lower()}_"   # STD 沿用 11/5、11/12 的名稱
+    tag = f"{POSE.lower()}_{payload_tag(PAYLOAD_KG)}_{set_label}{dir_label}_{TEST_STAGE.lower()}_{ts}"
     session_dir = os.path.join(OUTPUT_DIR, f"j1velmod_{tag}")
     os.makedirs(session_dir, exist_ok=True)
     csv_path = os.path.join(session_dir, f"j1velmod_data_{tag}.csv")
@@ -1143,8 +1176,8 @@ def main():
     with open(info_path, "w", encoding="utf-8") as f:
         f.write(f"姿態: {POSE}\n方向: {DIRECTION:+d}\n模式: {TEST_STAGE}\n負載 PAYLOAD_KG: {PAYLOAD_KG} kg\n")
         f.write("\n".join(pose_lines) + "\n")
-        f.write(f"條件 (Hz, rad/s): {conds}\n每個條件次數: {n_repeat}\n")
-        f.write(f"巡航速度: {V_CRUISE}\n調變時間: {T_MOD}s\n定速時間: {SETTLE_TIME}s\n")
+        f.write(f"條件組: {CONDITION_SET}\n條件 (Hz, rad/s): {conds}\n每個條件次數: {n_repeat}\n")
+        f.write(f"巡航速度: {V_CRUISE}\n調變時間: {t_mod}s\n定速時間: {SETTLE_TIME}s\n")
         f.write(f"調變段中心: {POSES[POSE]['center_deg']}°\n")
         f.write(f"起點錯開 [deg]: {[round(o, 6) for o in start_offsets_deg(n_repeat)]}\n")
         f.write("段順序（條件編號）: " + ", ".join(str(sg["cond"] + 1) for sg in segs) + "\n")
@@ -1155,7 +1188,8 @@ def main():
     print(f"\n[完成] 資料存至 {csv_path}")
     print(f"[完成] 摘要存至 {info_path}")
     print(f"\n[提醒] J1 已回 {end_deg:.0f}°，J2 仍在 0°（手臂朝上）；請以教導器把 J2 轉回 90°。")
-    print("\n下一步：analyze_j1_velocity_modulation(csv_path, JOINT_INDEX, KT_OUT, DIRECTION, CONDITIONS, V_CRUISE)")
+    print("\n下一步：analyze_j1_velocity_modulation(csv_path, JOINT_INDEX, KT_OUT, DIRECTION, "
+          f"CONDITION_SETS[\"{CONDITION_SET}\"][\"conditions\"], V_CRUISE)")
 
 
 if __name__ == "__main__":
