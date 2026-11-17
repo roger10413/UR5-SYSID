@@ -1,14 +1,15 @@
 # 待審查程式（2026/11/17，給 11/19 上機）
 
-這次有兩支上機程式要審查。其他上機程式，包括 11/12 跑過的 J2 定速、J2 速度調變與敲擊測試，都已審查過，也上機跑過。
+這次有三支上機程式要審查。其他上機程式，包括 11/12 跑過的 J2 定速、J2 速度調變與敲擊測試，都已審查過，也上機跑過。
 
 | # | 檔案 | 狀態 | 改動量 | 上機項目 |
 |---|------|------|--------|----------|
-| 1 | [`robot/ur5_j3_const_velocity_ident.py`](https://github.com/roger10413/UR5-SYSID/blob/81b97f5/robot/ur5_j3_const_velocity_ident.py) | **新程式** | 937 行，從已審查的 J2 定速複製後修改，邏輯未改 | RUN_PLAN #3、#6 |
-| 2 | [`robot/ur5_j1_velocity_modulation_ident.py`](https://github.com/roger10413/UR5-SYSID/blob/81b97f5/robot/ur5_j1_velocity_modulation_ident.py) | 修改 | +50／−16 行，新增低頻條件組 `LOWF` | RUN_PLAN #4、#5 |
+| 1 | [`robot/ur5_j3_const_velocity_ident.py`](https://github.com/roger10413/UR5-SYSID/blob/81b97f5/robot/ur5_j3_const_velocity_ident.py) | **新程式** | 937 行，從已審查的 J2 定速複製後修改，邏輯未改 | RUN_PLAN #3、#7 |
+| 2 | [`robot/ur5_j3_velocity_modulation_ident.py`](https://github.com/roger10413/UR5-SYSID/blob/main/robot/ur5_j3_velocity_modulation_ident.py) | **新程式** | 1,187 行，從已審查的 J2 速度調變複製後修改；條件振幅改為 1.5 倍 | RUN_PLAN #4、#8 |
+| 3 | [`robot/ur5_j1_velocity_modulation_ident.py`](https://github.com/roger10413/UR5-SYSID/blob/81b97f5/robot/ur5_j1_velocity_modulation_ident.py) | 修改 | +50／−16 行，新增低頻條件組 `LOWF` | RUN_PLAN #5、#6 |
 
-- 兩支都在 commit [`81b97f5`](https://github.com/roger10413/UR5-SYSID/commit/81b97f5)。
-- 都只通過離線測試，還沒上機。
+- #1、#3 在 commit [`81b97f5`](https://github.com/roger10413/UR5-SYSID/commit/81b97f5)，#2 是 11/17 補上的。
+- 三支都只通過離線測試，還沒上機。
 - 上機順序與安全視窗見 [`docs/RUN_PLAN_1119.md`](RUN_PLAN_1119.md)。
 
 ---
@@ -78,7 +79,58 @@ diff robot/ur5_j2_const_velocity_ident.py robot/ur5_j3_const_velocity_ident.py
 
 ---
 
-## 2. J1 速度調變 `ur5_j1_velocity_modulation_ident.py`：低頻條件組 `LOWF`
+## 2. J3 速度調變 `ur5_j3_velocity_modulation_ident.py`（新程式）
+
+### 怎麼看最快
+
+這支是 J2 速度調變 `ur5_j2_velocity_modulation_ident.py` 的複本。11/12 已用 J2 速度調變在 UP 上機。規劃、安全檢查、URScript 產生、RTDE 記錄、分析都沒有改。兩者的差異約 115 行（大多是說明文字）：
+
+```bash
+diff robot/ur5_j2_velocity_modulation_ident.py robot/ur5_j3_velocity_modulation_ident.py
+```
+
+### 改了什麼
+
+| 項目 | J2 速度調變（已審查） | J3 速度調變 |
+|------|----------------------|-------------|
+| `JOINT_INDEX` | 2 | 3 |
+| 預設姿態 | UP | **DIAG**（重力對角度的斜率小、假慣量小，接在 J3 定速 DIAG 之後不用換姿態） |
+| DIAG 調變段中心 | 71° | −109°（同 J3 定速 DIAG） |
+| UP 姿態 | J2 = 0°，中心 −5.7° | J2 = 0°、J3 = −130°，中心 −131.2°（同 J3 定速 UP） |
+| 條件 (f, A) | (1, 0.06)、(2, 0.06)、(3, 0.06)、(2, 0.03)、(1, 0.03)、(3, 0.04) | **1.5 倍**：(1, 0.09)、(2, 0.09)、(3, 0.09)、(2, 0.045)、(1, 0.045)、(3, 0.06) |
+| 最大調變加速度 | 1.13 rad/s² | **1.70 rad/s²** |
+| 速度範圍 | 0.06～0.18 rad/s | 0.03～0.21 rad/s（最低 = `V_MIN_ALLOWED` 0.03） |
+| `MOD_ACCEL_LIMIT`（調變段 speedj 加速度上限） | 1.5 | **2.0**（安全檢查上限 `QDD_CHECK_LIMIT` 3.0 不變） |
+| `KT_OUT`、`GEAR_RATIO` | 13.64、101 | **沿用**（J3 的實際值未知） |
+
+**為什麼加大振幅**：J3 帶動的只有手腕 2、手腕 3 與末端工具。官方連桿與末端工具約 0.06 kg·m²，加上馬達轉子推測 0.1～0.3；J2 約 1.0。
+- 用 J2 的條件做合成資料（J = 0.15，雜訊同 J2 測試），每個條件的標準差是 1 Hz ±0.10、2 Hz ±0.04、3 Hz ±0.02，1 Hz 的結果沒有用。
+- 改成 1.5 倍後是 1 Hz ±0.07、2 Hz ±0.03、3 Hz ±0.015。
+- 巡航速度與調變時間不變，所以擺動範圍幾乎不變，只多了約 0.3°。
+
+其餘設定和 J2 相同：巡航 0.12 rad/s、調變 3 s、FULL 每個條件 7 次、餘裕 2°、第一次 movej 上限 40°、法蘭最低 0.40 m、法蘭線速度上限 0.25 m/s。
+
+### 動作範圍（FULL，不含 2° 餘裕）
+
+| 姿態 | 正轉 | 反轉 | 法蘭最低 | 安全視窗（同 J3 定速） | 第一次 movej |
+|------|------|------|----------|------------------------|--------------|
+| DIAG | −127.2°～−94.9° | −123.1°～−90.8° | 0.43 m | −131 / −87 | 37.2° |
+| UP | −149.4°～−117.1° | −145.3°～−113.0° | 1.02 m | −153 / −109 | 19.4° |
+
+- 兩個姿態都在 J3 定速 FULL 範圍內。DIAG 不超過 −90°，工具只往前傾。
+- 法蘭最高 0.026 m/s，工具尖端約 0.07 m/s。
+- 每個方向 FULL 42 段約 6 分鐘。
+
+### 需要學長確認
+
+1. **振幅加大**：最大調變加速度 1.70 rad/s²、speedj 加速度上限 2.0 rad/s²，比 J0～J2 的 1.5 高。J3 是手腕軸、負載小，工具尖端加速度約 0.5 m/s²，這樣可以嗎？
+2. **最低速度剛好 0.03 rad/s**：振幅 0.09 時速度最低 0.03，等於 `V_MIN_ALLOWED`，不會歸零或反向。但低速時摩擦變化大，要不要留一點餘裕（例如振幅 0.085）？
+3. **DIAG 為主要姿態**：J1、J2 速度調變都是 UP 為主。J3 改成 DIAG 為主，因為假慣量較小（1 Hz 約 −0.03，UP 約 +0.09），也不用換姿態。UP 留作對照，用來確認重力項，可以嗎？
+4. **換算比例**：同 J3 定速，J 先當相對值，控制器的 J_model 可以拿來比。
+
+---
+
+## 3. J1 速度調變 `ur5_j1_velocity_modulation_ident.py`：低頻條件組 `LOWF`
 
 ### 改了什麼
 
@@ -128,8 +180,9 @@ diff robot/ur5_j2_const_velocity_ident.py robot/ur5_j3_const_velocity_ident.py
 python -m unittest discover -s tests
 ```
 
-- 共 197 個測試，在 11/16 全部通過。
+- 共 209 個測試，在 11/17 全部通過。
 - 測試會封鎖網路，用假的 RTDE，不會連到手臂。
 - 與這兩支程式相關的測試：
   - `tests/test_j3_constvel_offline.py`（23 個）：重力模型、範圍、安全檢查、姿態檢查、URScript、main 全流程、分析。
+  - `tests/test_j3_velmod_offline.py`（12 個）：規劃與範圍、安全檢查、姿態檢查（含忘了轉 J3）、URScript、main 全流程，以及分析：合成資料兩個姿態、兩個方向都找回 J，不放重力項時的假慣量正負符合預期。
   - `tests/test_j1_velmod_offline.py`（新增 `TestLowFrequencySet` 與 `test_lowf_recovers_J`）。

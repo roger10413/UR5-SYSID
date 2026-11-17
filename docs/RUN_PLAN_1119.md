@@ -3,7 +3,7 @@
 這次要回答兩件事：
 
 1. **J1 慣量隨頻率上升，是不是 4～6 Hz 彈性模態造成的？** 用低頻速度調變（`CONDITION_SET = "LOWF"`，0.5～2 Hz）加上紙杯砝碼，看 J 與 ΔJ 在低頻是不是變平、ΔJ 是不是接近 m·ρ²。
-2. **摩擦往下一軸推進。** 補 J2 的 DIAG 對照，第一次跑 J3（手腕 1）定速。
+2. **往下一軸推進。** 補 J2 定速的 DIAG 對照；第一次跑 J3（手腕 1）：定速（B、Tc）與速度調變（J）都做，兩個姿態。
 
 另外在 DIAG 做敲擊測試，看 11/12 在 UP 量到的 4.2～4.3 Hz 會不會隨姿態改變。
 
@@ -11,7 +11,7 @@ J0 已知質量重做（README「J0 已知質量重做」）這次不排：J1、
 
 ## 上機前（在實驗室電腦上）
 
-- [ ] `git pull`，確認是包含 `ur5_j3_const_velocity_ident.py` 與 `CONDITION_SET` 的版本。
+- [ ] `git pull`，確認是包含 `ur5_j3_const_velocity_ident.py`、`ur5_j3_velocity_modulation_ident.py` 與 `CONDITION_SET` 的版本。
 - [ ] 離線測試全部通過：`python -m unittest discover -s tests`（測試會封鎖網路，不會連到手臂）。
 - [ ] 末端工具（FT300、夾爪、3D 相機）不拆；教導器負載 1.30 kg、重心 (1, 1, 74) mm。
 - [ ] 紙杯砝碼（1.008 kg）與 11/12 同一個、同一種裝法；裝上後教導器負載改 2.31 kg（重心同 11/12）。
@@ -27,16 +27,18 @@ J0 已知質量重做（README「J0 已知質量重做」）這次不排：J1、
 | 1 | DIAG | 1.30 | `ur5_tap_test_record.py`：`POSE = "DIAG"`，`TAP_LABEL` = `none` → `fb` → `lr` | 各 14 s | 5 分 | 3 |
 | 2 | DIAG | 1.30 | `ur5_j2_const_velocity_ident.py`：`POSE = "DIAG"`，`J2_SAFE_MIN_DEG/MAX` = 48 / 93 | QUICK±、MID±、FULL± | 8 分 | 2 |
 | 3 | DIAG | 1.30 | `ur5_j3_const_velocity_ident.py`：`POSE = "DIAG"`，`J3_SAFE_MIN_DEG/MAX` = −131 / −87 | QUICK±、MID±、FULL± | 8 分 | 4 |
-| 4 | UP | 1.30 | `ur5_j1_velocity_modulation_ident.py`：`CONDITION_SET = "LOWF"`，`J1_SAFE_MIN_DEG/MAX` = −114 / −70 | QUICK±、MID±、FULL± | 13 分 | **1** |
-| 5 | UP | 2.31 | 同 #4（裝紙杯，`PAYLOAD_KG = 2.31`） | QUICK+、FULL± | 11 分 | **1** |
-| 6 | UP, J3 = −130° | 1.30 | `ur5_j3_const_velocity_ident.py`：`POSE = "UP"`，`J3_SAFE_MIN_DEG/MAX` = −153 / −109 | QUICK±、MID±、FULL± | 8 分 | 2 |
+| 4 | DIAG | 1.30 | `ur5_j3_velocity_modulation_ident.py`：`POSE = "DIAG"`，`J3_SAFE_MIN_DEG/MAX` = −131 / −87 | QUICK±、MID±、FULL± | 15 分 | 2 |
+| 5 | UP | 1.30 | `ur5_j1_velocity_modulation_ident.py`：`CONDITION_SET = "LOWF"`，`J1_SAFE_MIN_DEG/MAX` = −114 / −70 | QUICK±、MID±、FULL± | 13 分 | **1** |
+| 6 | UP | 2.31 | 同 #5（裝紙杯，`PAYLOAD_KG = 2.31`） | QUICK+、FULL± | 11 分 | **1** |
+| 7 | UP, J3 = −130° | 1.30 | `ur5_j3_const_velocity_ident.py`：`POSE = "UP"`，`J3_SAFE_MIN_DEG/MAX` = −153 / −109 | QUICK±、MID±、FULL± | 8 分 | 2 |
+| 8 | UP, J3 = −130° | 1.30 | `ur5_j3_velocity_modulation_ident.py`：`POSE = "UP"`，`J3_SAFE_MIN_DEG/MAX` = −153 / −109 | QUICK±、MID±、FULL± | 15 分 | 3 |
 
-運動時間合計約 55 分鐘；加上換姿態、換負載、每段人工確認，約 1.5～2 小時。時間不夠時依「優先」欄取捨：#4、#5 一定要做（同一天、負載相鄰才能比 ΔJ）。
+運動時間合計約 85 分鐘；加上換姿態、換負載、每段人工確認，約 2～2.5 小時。時間不夠時依「優先」欄取捨：#5、#6 一定要做（同一天、負載相鄰才能比 ΔJ）；J3 的定速與速度調變至少各做一個姿態（#3 或 #7、#4）。
 
 ### 換姿態
 
-- **DIAG → UP（#3 → #4）**：以教導器只把 J2 從 90° 轉到 0°（J0 = 180°、J1 = −90°、J3 = −90°、J4 = −90°、J5 = 0°）。
-- **#5 → #6**：拆紙杯、教導器負載改回 1.30；以教導器把 J3 從 −90° 轉到 −130°（工具朝前上方約 40°）。程式會檢查六軸 ±0.5°，忘了轉 J3 會中止。
+- **DIAG → UP（#4 → #5）**：以教導器只把 J2 從 90° 轉到 0°（J0 = 180°、J1 = −90°、J3 = −90°、J4 = −90°、J5 = 0°）。
+- **#6 → #7**：拆紙杯、教導器負載改回 1.30；以教導器把 J3 從 −90° 轉到 −130°（工具朝前上方約 40°）。程式會檢查六軸 ±0.5°，忘了轉 J3 會中止。
 - **結束**：J3 轉回 −90°、J2 轉回 90°，回到診斷原點。
 
 ## 各項說明
@@ -52,7 +54,7 @@ J0 已知質量重做（README「J0 已知質量重做」）這次不排：J1、
 - DIAG 窗口 [60.31°, 81.69°]，窗口內重力 +21.4～+23.4 N·m（前臂接近水平）；FULL 範圍 52.29°～89.71°，不低於診斷原點。
 - 看什麼：Tc 與 UP 比（摩擦隨負載變多少；J1 是 9.26 vs 9.16，B 22.5 vs 19.8）；`K_mean`（target_moment 窗口平均約 −22.7，絕對值夠大）與紙杯重力斜率的 12.10、定速斜率的 11.65 比。
 
-### #3、#6 J3 定速（新程式）
+### #3、#7 J3 定速（新程式）
 
 - 做法同 J1、J2 定速：窗口 6 個馬達圈，正反轉掃過同一段角度消去重力。J3 的重力小（最大約 3.6 N·m）。
 - UP（主要）：J3 從 −130° 開始，窗口中心 −131.2° 為重力零點（窗口內 −0.66～+0.66 N·m），工具朝前上方 22°～60°，法蘭約 1.03 m。工具朝上，注意上方燈具與線架。
@@ -60,7 +62,23 @@ J0 已知質量重做（README「J0 已知質量重做」）這次不排：J1、
 - 法蘭離 J3 軸 0.125 m，0.20 rad/s 時 0.025 m/s；工具尖端約 0.06 m/s。
 - **換算比例未知**：`KT_OUT` 暫用 J0～J2 的 13.64，J3 的 B、Tc 先當相對值。DIAG 的 `K_mean` 可作參考；UP 的重力斜率只有 J2 的 1/7，`K_slope` 誤差大（合成資料約 7%）。減速比 101 也是沿用，分析時要看漣波是否鎖定在 101 × 關節角。
 
-### #4、#5 J1 低頻速度調變（`CONDITION_SET = "LOWF"`）
+### #4、#8 J3 速度調變（新程式）
+
+- 做法同 J2 速度調變（11/12 UP 上機）：巡航 0.12 rad/s 上疊加正弦，調變 3 s，6 個條件 × 7 次，每個方向 42 段、約 6 分鐘。
+- **J3 的慣量小**：官方連桿 + 末端工具約 0.06 kg·m²（加上馬達轉子，推測 0.1～0.3）；J2 約 1.0。所以速度振幅改為 J2 的 1.5 倍：
+  - 條件 (1 Hz, 0.09)、(2 Hz, 0.09)、(3 Hz, 0.09)、(2 Hz, 0.045)、(1 Hz, 0.045)、(3 Hz, 0.06) rad/s；
+  - 加速度振幅 0.57～1.70 rad/s²，速度 0.03～0.21 rad/s；
+  - 調變段 speedj 加速度上限從 1.5 提高到 2.0 rad/s²（安全檢查上限 3.0）。
+- 合成資料（J = 0.15，雜訊同 J2 測試）每個條件的標準差：1 Hz ±0.07、2 Hz ±0.03、3 Hz ±0.015，J 主要靠 2、3 Hz。
+  QUICK、MID 跑完先看 J 的標準差：比這個大很多，FULL 前再討論要不要加次數。
+- DIAG（主要，#4）：接在 J3 定速 DIAG 之後，不用換姿態。重力對角度的斜率小，假慣量 1 Hz 約 −0.03。
+  FULL 範圍正轉 −127.2°～−94.9°、反轉 −123.1°～−90.8°，不超過 −90°（法蘭不低於診斷原點）。
+- UP（對照，#8）：調變段中心在重力零點 −131.2°，假慣量 1 Hz 約 +0.09（和 DIAG 正負相反）。兩個姿態的 J 一致，表示重力項扣對了。
+  FULL 範圍正轉 −149.4°～−117.1°、反轉 −145.3°～−113.0°。
+- 兩個姿態的範圍都在 J3 定速 FULL 範圍內，安全視窗和 J3 定速相同。
+- **換算比例未知**：J 先當相對值（13.64 換算）。控制器的 J_model（target_moment 對 target_qdd 回歸）不受換算比例影響，可以拿來比。
+
+### #5、#6 J1 低頻速度調變（`CONDITION_SET = "LOWF"`）
 
 條件（巡航 0.08 rad/s，調變 4 s，每個方向 35 段、約 5.2 分鐘）：
 
@@ -111,6 +129,10 @@ ta, tb = j3.window_bounds_deg(j3.POSES["UP"]["center_deg"], j3.N_MOTOR_REVS_WIND
 rp = j3.analyze_angle_window("正轉 FULL 的 CSV", 3, j3.KT_OUT, +1, j3.SPEED_LEVELS, ta, tb)
 rn = j3.analyze_angle_window("反轉 FULL 的 CSV", 3, j3.KT_OUT, -1, j3.SPEED_LEVELS, ta, tb)
 j3.combine_directions(rp, rn)
+
+# J3 速度調變（每個方向、每個姿態各一次；反轉用 -1）
+import ur5_j3_velocity_modulation_ident as v3
+r = v3.analyze_j3_velocity_modulation("FULL 的 CSV", 3, v3.KT_OUT, +1, v3.CONDITIONS, v3.V_CRUISE)
 
 # 敲擊測試
 import ur5_tap_test_record as tt
