@@ -62,12 +62,11 @@ for k, (run, col, lab, mk) in enumerate(runs):
     pts = [cond_mean(run, ci) for ci in range(6)]
     xs = []
     for J, s, f, A in pts:
-        dx = (k - 1) * 0.07 + (0.025 if A >= 0.04 else -0.025)   # 同頻率兩種振幅左右錯開
-        ax.errorbar(f + dx, J, yerr=s, fmt=mk, ms=7, color=col, mfc=col if A >= 0.04 else "white", mec=col,
+        ax.errorbar(f, J, yerr=s, fmt=mk, ms=7, color=col, mfc=col if A >= 0.04 else "white", mec=col,
                     mew=1.8, ecolor=col, elinewidth=1.2, capsize=2.5, zorder=4)
     fm = [np.mean([J for J, s, f, A in pts if abs(f - ff) < 0.2]) for ff in (1, 2, 3)]
     fmean[run] = fm
-    ax.plot(np.array([1, 2, 3]) + (k - 1) * 0.07, fm, color=col, lw=1.6, zorder=3, label=lab)
+    ax.plot([1, 2, 3], fm, color=col, lw=1.6, zorder=3, label=lab)
 jm130 = np.mean([J1["velmod_1112_p130_pos"]["per"][str(c)]["Jm"] for c in range(6)])
 jm231 = np.mean([J1["velmod_1112_p231_pos"]["per"][str(c)]["Jm"] for c in range(6)])
 for jm, col, txt in ((jm130, BLUE, "1.30 kg"), (jm231, ORANGE, "2.31 kg")):
@@ -77,7 +76,7 @@ for jm, col, txt in ((jm130, BLUE, "1.30 kg"), (jm231, ORANGE, "2.31 kg")):
 g0, g1 = fmean["1105_p130"][2], fmean["1112_p130"][2]
 ax.annotate("", xy=(2.84, g1), xytext=(2.84, g0), arrowprops=dict(arrowstyle="<->", color=INK2, lw=1.2))
 ax.text(2.80, 0.5 * (g0 + g1), f"同樣 1.30 kg\n兩週相差 {g1 - g0:+.2f}", ha="right", va="center", fontsize=11,
-        color=INK, linespacing=1.4)
+        color=INK, linespacing=1.4, bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none"), zorder=6)
 ax.legend(loc="upper left", frameon=False, fontsize=11)
 ax.set_xticks([1, 2, 3]); ax.set_xticklabels(["1 Hz", "2 Hz", "3 Hz"])
 ax.set_xlim(0.7, 3.4); ax.set_ylim(5.0, 11.4)
@@ -107,7 +106,7 @@ dj1 = J1B["dJ"]
 for lab, (m, s, jm) in dj1.items():
     f = float(lab.split()[0]); A = float(lab.split("×")[1])
     big = A >= 0.04
-    ax.errorbar(f + (0.05 if big else -0.05), m, yerr=s, fmt="o", ms=7, color=BLUE, mfc=BLUE if big else "white",
+    ax.errorbar(f, m, yerr=s, fmt="o", ms=7, color=BLUE, mfc=BLUE if big else "white",
                 mec=BLUE, mew=1.8, ecolor=BLUE, elinewidth=1.2, capsize=2.5, zorder=4)
 ff = np.linspace(0.5, 3.3, 60)
 ax.plot(ff, [dj_spring(x) for x in ff], color=INK, lw=1.4, ls=(0, (2, 2)), zorder=3)
@@ -127,7 +126,7 @@ for r in J2C["rows"]:
     w = [1 / s ** 2 for s in r["sdJ"]]
     m = sum(d * wi for d, wi in zip(r["dJ"], w)) / sum(w); s = 1 / math.sqrt(sum(w))
     big = r["A"] >= 0.05
-    ax.errorbar(r["f"] + (0.05 if big else -0.05), m, yerr=s, fmt="o", ms=7, color=GREEN,
+    ax.errorbar(r["f"], m, yerr=s, fmt="o", ms=7, color=GREEN,
                 mfc=GREEN if big else "white", mec=GREEN, mew=1.8, ecolor=GREEN, elinewidth=1.2, capsize=2.5,
                 zorder=4)
 jmd2 = float(np.mean([r["dJm"] for r in J2C["rows"]]))
