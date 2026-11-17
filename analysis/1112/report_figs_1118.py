@@ -46,6 +46,29 @@ def save(fig, name):
     return p
 
 
+from matplotlib.colors import to_rgba
+from matplotlib.lines import Line2D
+
+
+def pt(ax, x, y, s, col, big):
+    """同頻率的點畫在同一個 x，靠樣式分開：大振幅＝半透明大圓＋粗誤差棒（底層），
+    小振幅＝實心小菱形、白邊＋細誤差棒（上層）。疊在一起時兩個都看得到。"""
+    if big:
+        ax.errorbar(x, y, yerr=s, fmt="none", ecolor=to_rgba(col, 0.45), elinewidth=3.2, capsize=0, zorder=3)
+        ax.plot(x, y, "o", ms=15, mfc=to_rgba(col, 0.30), mec=col, mew=1.6, zorder=4)
+    else:
+        ax.errorbar(x, y, yerr=s, fmt="none", ecolor=col, elinewidth=1.1, capsize=3, capthick=1.1, zorder=5)
+        ax.plot(x, y, "D", ms=7.5, mfc=col, mec="white", mew=1.2, zorder=6)
+
+
+def amp_legend(ax, big_lab, small_lab, loc, anchor=None):
+    h = [Line2D([], [], ls="none", marker="o", ms=13, mfc=to_rgba(INK2, 0.30), mec=INK2, mew=1.5),
+         Line2D([], [], ls="none", marker="D", ms=7, mfc=INK2, mec="white", mew=1.0)]
+    lg = ax.legend(h, [big_lab, small_lab], loc=loc, bbox_to_anchor=anchor, frameon=False, fontsize=10.5,
+                   handletextpad=0.6, borderaxespad=0.3)
+    return lg
+
+
 def cond_mean(run, ci):
     """同一條件兩個方向的加權平均 J。"""
     v = [J1[f"velmod_{run}_{t}"]["per"][str(ci)] for t in ("pos", "neg")]
@@ -60,10 +83,8 @@ runs = (("1105_p130", GRAY, "11/5　1.30 kg", "o"), ("1112_p130", BLUE, "11/12�
 fmean = {}
 for k, (run, col, lab, mk) in enumerate(runs):
     pts = [cond_mean(run, ci) for ci in range(6)]
-    xs = []
     for J, s, f, A in pts:
-        ax.errorbar(f, J, yerr=s, fmt=mk, ms=7, color=col, mfc=col if A >= 0.04 else "white", mec=col,
-                    mew=1.8, ecolor=col, elinewidth=1.2, capsize=2.5, zorder=4)
+        pt(ax, f, J, s, col, A >= 0.04)
     fm = [np.mean([J for J, s, f, A in pts if abs(f - ff) < 0.2]) for ff in (1, 2, 3)]
     fmean[run] = fm
     ax.plot([1, 2, 3], fm, color=col, lw=1.6, zorder=3, label=lab)
@@ -77,7 +98,9 @@ g0, g1 = fmean["1105_p130"][2], fmean["1112_p130"][2]
 ax.annotate("", xy=(2.84, g1), xytext=(2.84, g0), arrowprops=dict(arrowstyle="<->", color=INK2, lw=1.2))
 ax.text(2.80, 0.5 * (g0 + g1), f"同樣 1.30 kg\n兩週相差 {g1 - g0:+.2f}", ha="right", va="center", fontsize=11,
         color=INK, linespacing=1.4, bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none"), zorder=6)
-ax.legend(loc="upper left", frameon=False, fontsize=11)
+lg = ax.legend(loc="upper left", frameon=False, fontsize=11)
+ax.add_artist(lg)
+amp_legend(ax, "振幅 0.04 rad/s", "振幅 0.02 或 0.027 rad/s", "upper left", (0.0, 0.79))
 ax.set_xticks([1, 2, 3]); ax.set_xticklabels(["1 Hz", "2 Hz", "3 Hz"])
 ax.set_xlim(0.7, 3.4); ax.set_ylim(5.0, 11.4)
 ax.set_xlabel("調變頻率"); ax.set_ylabel("J1 [kg·m²]（電流 × 13.64）")
@@ -85,7 +108,7 @@ style(ax)
 ax.set_title("圖 1　J1 速度調變：J 隨頻率上升（兩週都是），加 1 kg 後上升得更快", loc="left", fontsize=13.5, pad=12,
              color=INK)
 fig.text(0.01, 0.005, "手臂朝上，調變段中心在重力零點 -92°，巡航 0.08 rad/s。每點為一個條件正反轉的加權平均"
-         "（實心：振幅 0.04 rad/s；空心：0.02 或 0.027），線連各頻率的平均。\n誤差棒為單輪回歸的標準差。"
+         "，同頻率的點畫在同一個位置，線連各頻率的平均。\n誤差棒為單輪回歸的標準差。"
          "11/12 比 11/5 低約 0.8 °C（29.9 vs 30.7 °C）。", ha="left", va="bottom", fontsize=9, color=INK2,
          linespacing=1.5)
 fig.tight_layout(rect=(0, 0.06, 1, 1))
@@ -105,9 +128,7 @@ ax = axs[0]
 dj1 = J1B["dJ"]
 for lab, (m, s, jm) in dj1.items():
     f = float(lab.split()[0]); A = float(lab.split("×")[1])
-    big = A >= 0.04
-    ax.errorbar(f, m, yerr=s, fmt="o", ms=7, color=BLUE, mfc=BLUE if big else "white",
-                mec=BLUE, mew=1.8, ecolor=BLUE, elinewidth=1.2, capsize=2.5, zorder=4)
+    pt(ax, f, m, s, BLUE, A >= 0.04)
 ff = np.linspace(0.5, 3.3, 60)
 ax.plot(ff, [dj_spring(x) for x in ff], color=INK, lw=1.4, ls=(0, (2, 2)), zorder=3)
 ax.text(2.0, dj_spring(2.0) + 0.32, "單一彈簧模型\n（固有頻率約 5.6 Hz）", ha="right", va="bottom", fontsize=10,
@@ -119,16 +140,14 @@ ax.set_title("J1（肩）", loc="left", fontsize=12.5, color=INK)
 ax.set_xlim(0.5, 3.4); ax.set_ylim(0, 2.8)
 ax.set_xticks([1, 2, 3]); ax.set_xticklabels(["1 Hz", "2 Hz", "3 Hz"])
 ax.set_ylabel("ΔJ = J(2.31 kg) - J(1.30 kg) [kg·m²]")
+amp_legend(ax, "大振幅", "小振幅", "upper left")
 style(ax)
 # J2
 ax = axs[1]
 for r in J2C["rows"]:
     w = [1 / s ** 2 for s in r["sdJ"]]
     m = sum(d * wi for d, wi in zip(r["dJ"], w)) / sum(w); s = 1 / math.sqrt(sum(w))
-    big = r["A"] >= 0.05
-    ax.errorbar(r["f"], m, yerr=s, fmt="o", ms=7, color=GREEN,
-                mfc=GREEN if big else "white", mec=GREEN, mew=1.8, ecolor=GREEN, elinewidth=1.2, capsize=2.5,
-                zorder=4)
+    pt(ax, r["f"], m, s, GREEN, r["A"] >= 0.05)
 jmd2 = float(np.mean([r["dJm"] for r in J2C["rows"]]))
 ax.axhline(jmd2, color=INK, lw=1.6, ls=(0, (6, 4)), zorder=2)
 ax.text(3.35, jmd2 - 0.025, f"控制器 ΔJ_model {jmd2:.2f}", ha="right", va="top", fontsize=10.5, color=INK)
@@ -138,7 +157,7 @@ ax.set_xticks([1, 2, 3]); ax.set_xticklabels(["1 Hz", "2 Hz", "3 Hz"])
 style(ax)
 fig.suptitle("圖 2　同一個 1 kg 砝碼：頻率越高，量到的 ΔJ 越大（J1 只有 1 Hz 接近控制器的值）", x=0.01, ha="left",
              fontsize=13.5, color=INK)
-fig.text(0.01, 0.005, "手臂朝上，同一天、同一方向相減後兩個方向加權平均（實心：大振幅；空心：小振幅）。電流 × 13.64。"
+fig.text(0.01, 0.005, "手臂朝上，同一天、同一方向相減後兩個方向加權平均，同頻率的點畫在同一個位置。電流 × 13.64。"
          "控制器 ΔJ_model：target_moment 對 target_qdd 回歸，2.31 kg 減 1.30 kg。\n"
          "J1 的模型：J_量 = s·J / (1 - J·ω²/k)，以 1.30、2.31 kg 共 12 個條件擬合（s = 1.095、J = 5.55、k = 6898 N·m/rad；"
          "χ² = 42，自由度 9）。", ha="left", va="bottom", fontsize=9, color=INK2, linespacing=1.5)
