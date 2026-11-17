@@ -66,6 +66,7 @@ docs/
   EXPERIMENT_PLAN_ACCEL_V3.md            定加速度 v3 規劃與合成資料驗證
   RUN_PLAN_1119.md                       本週上機計畫：J1 低頻速度調變（含紙杯）、J2 DIAG 定速、J3 定速與速度調變、DIAG 敲擊測試
   REVIEW_1117.md                         待審查程式的說明（J3 定速、J3 速度調變、J1 LOWF）
+  REPORT_1118.md                         11/18 週報（11/12 上機結果）；圖在 report_1118/
 analysis/
   1013/                                  10/13 實驗分析（Python）：定速 3 輪比較、定加速度 v3、報告圖
   1015/                                  10/15 實驗分析（Python）：定速溫度效應、三角形 vs 梯形 v3、卡爾曼濾波殘差分解
@@ -73,6 +74,7 @@ analysis/
   1029/                                  10/29 實驗分析（Python）：已知質量校正 J0 換算比例、控制器 J_model 組成、J1 靜止電流
   1104/                                  10/29 資料的離線分析（Python）：6 軸剛體模型、控制器各訊號有沒有 1.915、回授組成、11/4 報告圖
   1105/                                  11/5 實驗分析（Python）：手臂朝上的 J0 速度調變、J1 定速、J1 速度調變，11/11 報告圖
+  1112/                                  11/12 實驗分析（Python）：J1 重複與紙杯砝碼、J2 定速與速度調變、敲擊測試，11/18 報告圖
 matlab/
   constvel/                              定速法分析與共用函式
   analysis_1007/                         定速重複實驗與定加速度（v2）分析
@@ -300,6 +302,15 @@ r = vm.analyze_velocity_modulation(csv_path, 0, vm.KT_OUT, +1, vm.CONDITIONS, vm
 需要 numpy、matplotlib。資料與輸出路徑寫在 `report_figs_1111.py` 開頭（`DATA`、`OUT`）；另讀 `analysis_1104/current_signals_1104.json`（10/29 的直線，先執行 `../1104/current_signals_1104.py`）。執行時封鎖網路。
 
 - `report_figs_1111.py`：11/5 上機（手臂朝上 `UP`）的分析與 11/11 報告圖——圖 1：J1 定速正反轉的窗口平均力矩（`B`、`Tc`）；圖 2：J1 速度調變各條件兩個方向的 `J`。另存（報告不放）：J0 速度調變的 `J` 與 10/29 直線在 `UP` 的預測、控制器 `J_model`。分析用 `robot/` 內的分析函式，結果快取在 `OUT/results_1105.json`。
+
+## Python 分析（`analysis/1112/`）
+
+需要 numpy、matplotlib、scipy。資料在 `D:\cluade_code\ur5\data_1112`，結果與圖存到 `D:\cluade_code\ur5\analysis_1112`。執行時封鎖網路，不連手臂。報告見 [`docs/REPORT_1118.md`](docs/REPORT_1118.md)。
+
+- `j1_1112.py` → `j1_1112_b.py`、`j1_1112_fit.py`：J1 定速 DIAG、速度調變兩週重複、紙杯砝碼的 ΔJ 與重力斜率（換算比例 12.03）、單一彈簧模型擬合。
+- `j2_1112.py`、`j2_cup_1112.py`：J2 定速、速度調變，紙杯砝碼的 ΔJ 與重力斜率（換算比例 12.10）。
+- `tap_fit_1112.py`、`tap_spec_1112.py`、`tap_where_1112.py`：敲擊測試的餘振頻率與頻譜。
+- `report_figs_1118.py`：11/18 報告圖 1～5（讀上面各程式存的 json），另複製到 `docs/report_1118/`。
 
 ## MATLAB 分析（R2025a）
 
