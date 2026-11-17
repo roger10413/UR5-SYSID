@@ -1,7 +1,7 @@
 """11/18 報告的圖（11/12 上機，手臂朝上 UP）。
 圖 1：J1 速度調變，J 對頻率：11/5 與 11/12 重複（1.30 kg），加砝碼（2.31 kg）。
 圖 2：砝碼造成的 ΔJ 對頻率：J1（加單一彈簧模型）、J2，和控制器 ΔJ_model 比。
-圖 3：換算比例（N·m/A）的各種估計，和目前用的 13.64 比。
+圖 3：換算比例（N·m/A）的各種估計，和文獻值 13.64（減速比 101 × 轉矩常數 0.135）比。
 圖 4：敲擊測試的餘振頻譜（11/12 已畫好的 w1112_tap_spectrum.png，複製改名）。
 圖 5：J2 定速（B、Tc）與 J2 速度調變各條件的 J。
 只讀 11/12 分析已存的結果（analysis_1112/*.json，由同資料夾的 j1_1112*.py、j2_*.py、tap_*.py 產生），不連網路。
@@ -24,7 +24,7 @@ FIGS = os.path.join(OUT, "figs"); os.makedirs(FIGS, exist_ok=True)
 DOCS = os.path.join(HERE, "..", "..", "docs", "report_1118"); os.makedirs(DOCS, exist_ok=True)
 INK, INK2, MUTED, GRAY = "#0b0b0b", "#52514e", "#8d8b83", "#b9b8b0"
 ORANGE, BLUE, GREEN = "#d9822b", "#2a78d6", "#3a9a5b"
-KT = 13.64                                             # 目前用的換算比例（J0～J2 沿用）
+KT = 13.64                                             # 文獻值換算比例 101 × 0.135（J0 已用砝碼校正為 10.8；J1、J2 暫時沿用）
 M_CUP, G = 1.008, 9.81
 
 J1 = json.load(open(os.path.join(OUT, "j1_1112.json"), encoding="utf-8"))
@@ -169,14 +169,14 @@ for yi, (lab, v, col, note) in zip(y, est):
     ax.text(v + 0.08, yi, f"{v:.2f}", va="center", ha="left", fontsize=11.5, color=INK, fontweight="bold")
     ax.text(0.15, yi, note, va="center", ha="left", fontsize=9.5, color="white", zorder=4)
 ax.axvline(KT, color=INK, lw=1.8, ls=(0, (6, 4)), zorder=5)
-ax.text(KT - 0.08, y[0] + 0.5, f"目前用的 {KT}", ha="right", va="bottom", fontsize=11, color=INK)
+ax.text(KT - 0.08, y[0] + 0.5, f"文獻值 {KT}", ha="right", va="bottom", fontsize=11, color=INK)
 ax.set_yticks(y); ax.set_yticklabels([e[0] for e in est], fontsize=11)
 ax.set_xlim(0, 15.2); ax.set_ylim(-0.6, len(est) - 0.2)
 ax.set_xlabel("換算比例（力矩 ÷ 電流）[N·m/A]")
 for s in ("top", "right"):
     ax.spines[s].set_visible(False)
 ax.grid(axis="x", alpha=1, ls=(0, (4, 3))); ax.set_axisbelow(True)
-ax.set_title("圖 3　換算比例：用已知質量量到的都在 12.0～12.5，比目前用的 13.64 低約 10%", loc="left",
+ax.set_title("圖 3　換算比例：用砝碼的重力斜率量到 12.0～12.1，比文獻值 13.64 低約 11%", loc="left",
              fontsize=13.5, pad=12, color=INK)
 fig.text(0.01, 0.005, "彩色：只用已知質量（砝碼 1.008 kg）與幾何，不需要控制器的模型；灰色：要假設控制器的重力模型正確。"
          "\n控制器自己的重力斜率與 m·g·h 相比：J1 1.00、J2 1.03（控制器知道砝碼重量）。", ha="left", va="bottom",
