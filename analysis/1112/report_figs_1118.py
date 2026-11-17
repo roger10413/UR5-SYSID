@@ -1,6 +1,6 @@
 """11/18 報告的圖（11/12 上機，手臂朝上 UP）。
-圖 1：J1 速度調變，J 對頻率：11/5 與 11/12 重複（1.30 kg），加紙杯砝碼（2.31 kg）。
-圖 2：紙杯砝碼造成的 ΔJ 對頻率：J1（加單一彈簧模型）、J2，和控制器 ΔJ_model 比。
+圖 1：J1 速度調變，J 對頻率：11/5 與 11/12 重複（1.30 kg），加砝碼（2.31 kg）。
+圖 2：砝碼造成的 ΔJ 對頻率：J1（加單一彈簧模型）、J2，和控制器 ΔJ_model 比。
 圖 3：換算比例（N·m/A）的各種估計，和目前用的 13.64 比。
 圖 4：敲擊測試的餘振頻譜（11/12 已畫好的 w1112_tap_spectrum.png，複製改名）。
 圖 5：J2 定速（B、Tc）與 J2 速度調變各條件的 J。
@@ -56,7 +56,7 @@ def cond_mean(run, ci):
 # ---------------- 圖 1：J1 速度調變，J 對頻率 ----------------
 fig, ax = plt.subplots(figsize=(10, 5.9))
 runs = (("1105_p130", GRAY, "11/5　1.30 kg", "o"), ("1112_p130", BLUE, "11/12　1.30 kg", "o"),
-        ("1112_p231", ORANGE, "11/12　2.31 kg（加紙杯 1.008 kg）", "s"))
+        ("1112_p231", ORANGE, "11/12　2.31 kg（加砝碼 1.008 kg）", "s"))
 fmean = {}
 for k, (run, col, lab, mk) in enumerate(runs):
     pts = [cond_mean(run, ci) for ci in range(6)]
@@ -91,7 +91,7 @@ fig.text(0.01, 0.005, "手臂朝上，調變段中心在重力零點 -92°，巡
 fig.tight_layout(rect=(0, 0.06, 1, 1))
 f1 = save(fig, "w1118_fig1_j1_velmod_freq.png")
 
-# ---------------- 圖 2：紙杯砝碼的 ΔJ 對頻率 ----------------
+# ---------------- 圖 2：砝碼的 ΔJ 對頻率 ----------------
 # J1 單一彈簧模型（j1_1112_fit.py 的「整個慣量在彈簧後」）：J_meas = s·J/(1 − J·ω²/k)，砝碼加在 J 上
 S_FIT, J_FIT, K_FIT, DJ_FIT = 1.095, 5.5467, 6897.9, 0.905
 def dj_spring(f):
@@ -136,7 +136,7 @@ ax.set_title("J2（肘）", loc="left", fontsize=12.5, color=INK)
 ax.set_xlim(0.5, 3.4); ax.set_ylim(0, 0.8)
 ax.set_xticks([1, 2, 3]); ax.set_xticklabels(["1 Hz", "2 Hz", "3 Hz"])
 style(ax)
-fig.suptitle("圖 2　同一個 1 kg 紙杯：頻率越高，量到的 ΔJ 越大（J1 只有 1 Hz 接近控制器的值）", x=0.01, ha="left",
+fig.suptitle("圖 2　同一個 1 kg 砝碼：頻率越高，量到的 ΔJ 越大（J1 只有 1 Hz 接近控制器的值）", x=0.01, ha="left",
              fontsize=13.5, color=INK)
 fig.text(0.01, 0.005, "手臂朝上，同一天、同一方向相減後兩個方向加權平均（實心：大振幅；空心：小振幅）。電流 × 13.64。"
          "控制器 ΔJ_model：target_moment 對 target_qdd 回歸，2.31 kg 減 1.30 kg。\n"
@@ -146,13 +146,13 @@ fig.tight_layout(rect=(0, 0.07, 1, 0.95))
 f2 = save(fig, "w1118_fig2_cup_dJ.png")
 
 # ---------------- 圖 3：換算比例的各種估計 ----------------
-mgh1 = M_CUP * G * J1B["h"]                            # 紙杯離 J1 軸的高度 h（重心由控制器 ΔJ_model 反推，d ≈ 56 mm）
+mgh1 = M_CUP * G * J1B["h"]                            # 砝碼離 J1 軸的高度 h（重心由控制器 ΔJ_model 反推，d ≈ 56 mm）
 dS1 = float(np.mean(J1B["dS"]))
 K1 = KT * mgh1 / abs(dS1)
 c1d = J1["constvel_diag"]; c2 = J2["constvel"]
 est = [  # (標籤, 值, 顏色, 說明)
-    ("J1 紙杯重力斜率", K1, BLUE, f"m·g·h {mgh1:.2f} ÷ 量測 Δ斜率 {abs(dS1):.2f}"),
-    ("J2 紙杯重力斜率", J2C["Kcal"], GREEN, f"m·g·h {J2C['mgh']:.2f} ÷ 量測 Δ斜率 5.43"),
+    ("J1 砝碼重力斜率", K1, BLUE, f"m·g·h {mgh1:.2f} ÷ 量測 Δ斜率 {abs(dS1):.2f}"),
+    ("J2 砝碼重力斜率", J2C["Kcal"], GREEN, f"m·g·h {J2C['mgh']:.2f} ÷ 量測 Δ斜率 5.43"),
     ("J1 彈簧模型擬合", KT / S_FIT, BLUE, "圖 2 左的模型參數 s"),
     ("J1 定速 DIAG 斜率", c1d["K_slope"], GRAY, "力矩對角度斜率，假設控制器重力模型正確"),
     ("J2 定速 UP 斜率", c2["K_slope"], GRAY, "同上"),
@@ -174,8 +174,8 @@ for s in ("top", "right"):
 ax.grid(axis="x", alpha=1, ls=(0, (4, 3))); ax.set_axisbelow(True)
 ax.set_title("圖 3　換算比例：用已知質量量到的都在 12.0～12.5，比目前用的 13.64 低約 10%", loc="left",
              fontsize=13.5, pad=12, color=INK)
-fig.text(0.01, 0.005, "彩色：只用已知質量（紙杯 1.008 kg）與幾何，不需要控制器的模型；灰色：要假設控制器的重力模型正確。"
-         "\n控制器自己的重力斜率與 m·g·h 相比：J1 1.00、J2 1.03（控制器知道紙杯重量）。", ha="left", va="bottom",
+fig.text(0.01, 0.005, "彩色：只用已知質量（砝碼 1.008 kg）與幾何，不需要控制器的模型；灰色：要假設控制器的重力模型正確。"
+         "\n控制器自己的重力斜率與 m·g·h 相比：J1 1.00、J2 1.03（控制器知道砝碼重量）。", ha="left", va="bottom",
          fontsize=9, color=INK2, linespacing=1.5)
 fig.tight_layout(rect=(0, 0.06, 1, 1))
 f3 = save(fig, "w1118_fig3_conversion_ratio.png")

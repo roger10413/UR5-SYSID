@@ -1,4 +1,4 @@
-# 離線：敲擊後餘振頻譜，有無紙杯砝碼比較；不連線、不動手臂
+# 離線：敲擊後餘振頻譜，有無砝碼比較；不連線、不動手臂
 import sys, glob, socket
 socket.socket = None
 import numpy as np, matplotlib
@@ -27,7 +27,7 @@ cases = [("前後方向（工具加速度計 z）：前後敲", ["111246", "1113
 for ax, (title, a, b, i) in zip(axs, cases):
     Pa, Pb = spec(a, i), spec(b, i); m = (fr >= 1) & (fr <= 20); ref = Pa[m].max()
     ax.plot(fr[m], 10*np.log10(Pa[m] / ref), color=C0, lw=2, label="只有末端工具（1.30 kg）")
-    ax.plot(fr[m], 10*np.log10(Pb[m] / ref), color=C1, lw=2, label="夾紙杯砝碼（2.31 kg）")
+    ax.plot(fr[m], 10*np.log10(Pb[m] / ref), color=C1, lw=2, label="加砝碼（2.31 kg）")
     ax.set_title(title, loc="left", fontsize=12.5); ax.set_xlabel("頻率 [Hz]"); ax.set_xlim(1, 20); ax.set_ylim(-50, 3)
     ax.grid(True, which="major", color="#e5e5e5"); ax.spines[["top", "right"]].set_visible(False)
 axs[0].set_ylabel("功率 [dB]（相對最大峰）")
