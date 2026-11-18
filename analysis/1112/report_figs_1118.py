@@ -201,19 +201,21 @@ for line in open(os.path.join(OUT, "j2_1112_log.txt"), encoding="utf-8"):
     elif cur and re.match(r"^\s+\d+\s+0\.\d+\s+\d+", line):
         t = line.split(); seg[cur].append((abs(float(t[4])), abs(float(t[5]))))
 vv = np.linspace(0, 0.21, 20)
-for d, col, sgn, lab, kw in (("pos", BLUE, +1, "正轉", dict(marker="o", s=55, color=BLUE, zorder=4)),
+# 扣掉窗口內的平均重力 H 再畫：正轉 |τ| = Tc + B·v + H，反轉 |τ| = Tc + B·v − H，
+# 所以 |τ| − sgn·H 兩個方向都剩下摩擦 Tc + B·v，應該疊在同一條線上
+for d, col, sgn, lab, kw in (("pos", BLUE, +1, "正轉", dict(marker="o", s=55, color=BLUE, zorder=5)),
                              ("neg", ORANGE, -1, "反轉（取絕對值）",
-                              dict(marker="s", s=70, facecolors="none", edgecolors=ORANGE, linewidths=2, zorder=5))):
+                              dict(marker="s", s=150, facecolors="none", edgecolors=ORANGE, linewidths=2, zorder=4))):
     a = np.array(seg[d]); assert len(a) == 12, (d, len(a))
     v = np.round(a[:, 0], 2); vs = np.unique(v)
-    ax.scatter(vs, [a[v == x, 1].mean() for x in vs], label=f"{lab}：截距 {c2['Tc'] + sgn * c2['H']:.2f}", **kw)
-    ax.plot(vv, c2["Tc"] + sgn * c2["H"] + c2["B"] * vv, color=col, lw=1.4, zorder=3)
+    ax.scatter(vs, [a[v == x, 1].mean() - sgn * c2["H"] for x in vs], label=lab, **kw)
+ax.plot(vv, c2["Tc"] + c2["B"] * vv, color=INK2, lw=1.4, zorder=3, label="摩擦 Tc + B·v")
 ax.text(0.205, 7.6, f"B = {c2['B']:.1f} ± {c2['sd_B']:.1f} N·m·s/rad\nTc = {c2['Tc']:.2f} ± {c2['sd_Tc']:.2f} N·m\n"
-        f"窗口內重力平均 {c2['H']:+.2f} N·m", ha="right", va="bottom", fontsize=11, color=INK, linespacing=1.5)
+        f"已扣窗口內重力平均 {c2['H']:+.2f} N·m", ha="right", va="bottom", fontsize=11, color=INK, linespacing=1.5)
 ax.legend(loc="upper left", frameon=False, fontsize=10.5)
 ax.set_xlim(0, 0.215); ax.set_ylim(7, 16)
-ax.set_xlabel("J2 速度 [rad/s]"); ax.set_ylabel("定速時的力矩大小 [N·m]")
-ax.set_title("定速（-16.4°～+5.0°，6 檔速度）", loc="left", fontsize=12, color=INK)
+ax.set_xlabel("J2 速度 [rad/s]"); ax.set_ylabel("扣掉重力後的力矩大小 [N·m]")
+ax.set_title("定速（-16.4°～+5.0°，6 檔速度），扣掉重力", loc="left", fontsize=12, color=INK)
 style(ax)
 ax = axs[1]
 vm = J2["velmod"]
@@ -240,10 +242,11 @@ ax.set_xlim(-0.6, 5.6); ax.set_ylim(0, 3.6)
 ax.set_ylabel("J2 [kg·m²]（電流 × 13.64）")
 ax.set_title("速度調變（調變段中心 -5.4°）", loc="left", fontsize=12, color=INK)
 style(ax)
-fig.suptitle("圖 5　J2 第一次上機：定速正反轉的 B 一致；速度調變的 J 也隨頻率上升，約為控制器的 0.46～0.65 倍",
+fig.suptitle("圖 5　J2 第一次上機：扣掉重力後定速正反轉重合；速度調變的 J 也隨頻率上升，約為控制器的 0.46～0.65 倍",
              x=0.01, ha="left", fontsize=13.5, color=INK)
 fig.text(0.01, 0.005, "11/12 手臂朝上（J2 = 0°，前臂朝上），末端工具 1.30 kg。電流 × 13.64；分析含重力項。"
-         "定速每點為同一檔速度升、降兩段的平均；誤差棒為單輪回歸的標準差。", ha="left", va="bottom", fontsize=9, color=INK2)
+         "定速每點為同一檔速度升、降兩段的平均，已扣窗口內平均重力（正轉加 0.55、反轉減 0.55）；"
+         "右圖誤差棒為單輪回歸的標準差。", ha="left", va="bottom", fontsize=9, color=INK2)
 fig.tight_layout(rect=(0, 0.04, 1, 0.94))
 f5 = save(fig, "w1118_fig5_j2.png")
 
