@@ -143,6 +143,9 @@ SPEED_FRACTION_MIN = 0.999
 # 額外記錄的 RTDE 輸出（只記錄，不影響動作）：(欄名, ur_rtde 方法)。控制器或 ur_rtde 不支援時該欄留空。
 EXTRA_SIGNALS = (("target_qdd", "getTargetQdd"), ("target_moment", "getTargetMoment"),
                  ("target_current", "getTargetCurrent"), ("joint_control_output", "getJointControlOutput"))
+# 工具端加速度計（actual_tool_accelerometer，工具座標 x、y、z，含重力）[m/s²]：和編碼器的加速度比，
+# 估計平台（底座）跟著晃的量（11/18 平台搖晃模型）。讀不到時該欄留空，不影響其他欄位。
+VECTOR_SIGNALS = (("tool_acc", "getActualToolAccelerometer", ("x", "y", "z")),)
 
 # UR5（CB3）官方 DH 參數（只用於法蘭高度與線速度檢查）
 DH_D = (0.089159, 0.0, 0.0, 0.10915, 0.09465, 0.0823)
@@ -541,6 +544,8 @@ class RtdeLogger:
         self.q0_min = self.q0_max = None
         self.extra_reads = {name: 0 for name, _ in EXTRA_SIGNALS}    # 各額外訊號成功讀取的列數
         self.extra_missing = []                                      # ur_rtde 沒有對應方法的訊號
+        self.vec_reads = {name: 0 for name, _, _ in VECTOR_SIGNALS}   # 工具加速度等向量訊號成功讀取的列數
+        self.vec_missing = []
         self.last_speed_fraction = self.min_speed_fraction = None    # 教導器速度滑桿（target_speed_fraction）
         self.speed_fraction_missing = 0                              # 讀不到滑桿的列數
         self.started_ok = threading.Event()
@@ -565,6 +570,8 @@ class RtdeLogger:
         get_ts = getattr(rtde_r, "getTimestamp", None)
         extras = [(name, getattr(rtde_r, meth, None)) for name, meth in EXTRA_SIGNALS]
         self.extra_missing = [name for name, getter in extras if getter is None]
+        vecs = [(name, getattr(rtde_r, meth, None), axes) for name, meth, axes in VECTOR_SIGNALS]
+        self.vec_missing = [name for name, getter, _ in vecs if getter is None]
         get_sf = getattr(rtde_r, "getTargetSpeedFraction", None)
         writer, last_ctrl_ts, t0_ctrl = None, None, None
         poll_interval = self.period / 5.0
@@ -610,6 +617,19 @@ class RtdeLogger:
                         self.extra_reads[name] += 1
                     for j in range(6):
                         row[f"{name}_{j}"] = vals[j]
+                for name, getter, axes in vecs:                # 工具加速度：讀不到時留空
+                    vals = None
+                    if getter is not None:
+                        try:
+                            vals = list(getter())
+                        except Exception:
+                            vals = None
+                    if vals is None or len(vals) != len(axes):
+                        vals = [None] * len(axes)
+                    else:
+                        self.vec_reads[name] += 1
+                    for a, x in zip(axes, vals):
+                        row[f"{name}_{a}"] = x
                 sf = None
                 if get_sf is not None:
                     try:
@@ -649,6 +669,9 @@ class RtdeLogger:
         lines.append("額外訊號（成功讀取列數）: " + "，".join(
             f"{name} {n}" + ("（ur_rtde 無此方法）" if name in self.extra_missing else "")
             for name, n in self.extra_reads.items()))
+        lines.append("工具加速度（成功讀取列數）: " + "，".join(
+            f"{name} {n}" + ("（ur_rtde 無此方法）" if name in self.vec_missing else "")
+            for name, n in self.vec_reads.items()))
         if self.min_speed_fraction is None:
             lines.append("教導器速度滑桿：整段讀不到")
         else:

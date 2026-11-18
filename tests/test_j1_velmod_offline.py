@@ -306,6 +306,31 @@ class TestMain(Base):
             self.assertIn("教導器速度滑桿（記錄中最低）: 100.0%", info)
             self.assertIn("請以教導器把 J2 轉回 90°", self.last_out)
 
+    def test_records_tool_accelerometer(self):
+        """工具加速度計寫進 CSV 的 tool_acc_x/y/z；ur_rtde 沒有此方法時該欄留空、摘要註明，其他欄位照常。"""
+        m = load("jv_toolacc")
+        m.J1_SAFE_MIN_DEG, m.J1_SAFE_MAX_DEG = WIN
+        FakeRTDE.getActualToolAccelerometer = lambda self: [0.1, -9.8, 0.2]
+        try:
+            scripts, files = self._run(m)
+        finally:
+            del FakeRTDE.getActualToolAccelerometer
+        self.assertEqual(len(scripts), 1)
+        data = next(v for n, v in files.items() if n.startswith("j1velmod_data_"))
+        rows = list(csv.DictReader(io.StringIO(data)))
+        self.assertTrue(rows)
+        self.assertEqual([float(rows[0][f"tool_acc_{a}"]) for a in "xyz"], [0.1, -9.8, 0.2])
+        info = next(v for n, v in files.items() if n.startswith("j1velmod_info_"))
+        self.assertIn(f"工具加速度（成功讀取列數）: tool_acc {len(rows)}\n", info)
+        scripts, files = self._run(m)                  # FakeRTDE 沒有 getActualToolAccelerometer
+        self.assertEqual(len(scripts), 1)
+        data = next(v for n, v in files.items() if n.startswith("j1velmod_data_"))
+        rows = list(csv.DictReader(io.StringIO(data)))
+        self.assertEqual([rows[0][f"tool_acc_{a}"] for a in "xyz"], ["", "", ""])
+        self.assertNotEqual(rows[0]["actual_q_0"], "")
+        info = next(v for n, v in files.items() if n.startswith("j1velmod_info_"))
+        self.assertIn("tool_acc 0（ur_rtde 無此方法）", info)
+
 
 # ------------------------------------------------------------
 # 合成資料
