@@ -53,7 +53,7 @@ def cond_mean(run, ci):
     return float(sum(x["J"] * wi for x, wi in zip(v, w)) / w.sum()), float(1 / math.sqrt(w.sum())), v[0]["f"], v[0]["A"]
 
 
-# ---------------- 圖 1：J1 速度調變，J 對頻率（兩種振幅各畫一張，不畫誤差棒） ----------------
+# ---------------- 圖 1：J1 速度調變，J 對頻率（兩種振幅各畫一張，含誤差棒） ----------------
 runs = (("1105_p130", MUTED, "11/5　1.30 kg", "^"), ("1112_p130", BLUE, "11/12　1.30 kg", "o"),
         ("1112_p231", ORANGE, "11/12　2.31 kg（加砝碼 1.008 kg）", "s"))
 AMP1 = ((True, "大振幅 0.04 rad/s"), (False, "小振幅 0.02 rad/s（3 Hz 為 0.027）"))
@@ -66,9 +66,10 @@ jm231 = np.mean([J1["velmod_1112_p231_pos"]["per"][str(c)]["Jm"] for c in range(
 for ax, (big, ttl) in zip(axs, AMP1):
     y3 = {}
     for run, col, lab, mk in runs:
-        pp = sorted((f, J) for J, s, f, A in pts_all[run] if (A >= 0.04) == big)
-        ax.plot([p[0] for p in pp], [p[1] for p in pp], "-" + mk, color=col, lw=1.8, ms=8 if mk != "^" else 9,
-                mfc=col, mec="white", mew=1.2, zorder=4, label=lab)
+        pp = sorted((f, J, s) for J, s, f, A in pts_all[run] if (A >= 0.04) == big)
+        ax.errorbar([p[0] for p in pp], [p[1] for p in pp], yerr=[p[2] for p in pp], fmt="-" + mk, color=col, lw=1.8,
+                    ms=8 if mk != "^" else 9, mfc=col, mec="white", mew=1.2, ecolor=col, elinewidth=1.3, capsize=4,
+                    capthick=1.3, zorder=4, label=lab)
         y3[run] = pp[-1][1]
     for jm, col in ((jm130, BLUE), (jm231, ORANGE)):
         ax.axhline(jm, color=col, lw=1.2, ls=(0, (6, 4)), zorder=2)
@@ -89,7 +90,7 @@ for jm, col, txt in ((jm130, BLUE, "1.30 kg"), (jm231, ORANGE, "2.31 kg")):
 fig.suptitle("圖 1　J1 速度調變：J 隨頻率上升（兩週都是），加 1 kg 後上升得更快", x=0.01, ha="left", fontsize=13.5,
              color=INK)
 fig.text(0.01, 0.005, "手臂朝上，調變段中心在重力零點 -92°，巡航 0.08 rad/s。每點為一個條件正反轉的加權平均；"
-         "左右兩張是兩種振幅，同一條件只出現一次，不畫誤差棒（標準差見內文）。\n"
+         "左右兩張是兩種振幅，同一條件只出現一次；誤差棒為單輪回歸的標準差。\n"
          "虛線為控制器的 J_model；箭頭為 1.30 kg 在 3 Hz 的兩週差。11/12 比 11/5 低約 0.8 °C（29.9 vs 30.7 °C）。", ha="left", va="bottom", fontsize=9,
          color=INK2, linespacing=1.5)
 fig.tight_layout(rect=(0, 0.06, 0.93, 0.95))
@@ -107,11 +108,11 @@ dj1 = J1B["dJ"]; jmd1 = J1B["Jm_d"]
 j1 = {True: [], False: []}
 for lab, (m, s, jm) in dj1.items():
     f = float(lab.split()[0]); A = float(lab.split("×")[1])
-    j1[A >= 0.04].append((f, m, A))
+    j1[A >= 0.04].append((f, m, s))
 j2 = {True: [], False: []}
 for r in J2C["rows"]:
     w = [1 / s ** 2 for s in r["sdJ"]]
-    j2[r["A"] >= 0.05].append((r["f"], sum(d * wi for d, wi in zip(r["dJ"], w)) / sum(w), r["A"]))
+    j2[r["A"] >= 0.05].append((r["f"], sum(d * wi for d, wi in zip(r["dJ"], w)) / sum(w), 1 / math.sqrt(sum(w))))
 jmd2 = float(np.mean([r["dJm"] for r in J2C["rows"]]))
 fig, axs = plt.subplots(2, 2, figsize=(12.5, 8.8), sharex=True)
 rows = (("J1（肩）", j1, BLUE, jmd1, (0, 2.8), {True: "大振幅 0.04 rad/s", False: "小振幅 0.02 rad/s（3 Hz 為 0.027）"}),
@@ -121,10 +122,17 @@ for i, (jn, dd, col, jmd, yl, ttl) in enumerate(rows):
     for k, big in enumerate((True, False)):
         ax = axs[i, k]
         pp = sorted(dd[big])
-        ax.plot([p[0] for p in pp], [p[1] for p in pp], "-o", color=col, lw=1.8, ms=8, mfc=col, mec="white", mew=1.2,
-                zorder=4)
-        for f, m, A in pp:
-            ax.text(f, m + 0.045 * (yl[1] - yl[0]), f"{m:.2f}", ha="center", va="bottom", fontsize=10.5, color=col,
+        ax.errorbar([p[0] for p in pp], [p[1] for p in pp], yerr=[p[2] for p in pp], fmt="-o", color=col, lw=1.8, ms=8,
+                    mfc=col, mec="white", mew=1.2, ecolor=col, elinewidth=1.3, capsize=4, capthick=1.3, zorder=4)
+        dy = 0.035 * (yl[1] - yl[0])
+        for n, (f, m, s) in enumerate(pp):              # 數值標在點的右邊，避開誤差棒和往右的折線
+            if n == len(pp) - 1:
+                y, va = m, "center"
+            elif pp[n + 1][1] >= m:                    # 折線往上 → 標在線下方
+                y, va = m - dy, "top"
+            else:                                       # 折線往下 → 標在線上方
+                y, va = m + dy, "bottom"
+            ax.text(f + 0.07, y, f"{m:.2f}", ha="left", va=va, fontsize=10.5, color=col,
                     zorder=6, bbox=dict(boxstyle="square,pad=0.1", fc="white", ec="none"))
         ax.axhline(jmd, color=INK, lw=1.4, ls=(0, (6, 4)), zorder=2)
         ax.text(3.3, jmd - 0.02 * (yl[1] - yl[0]), f"控制器 ΔJ_model {jmd:.2f}", ha="right", va="top", fontsize=10,
@@ -143,7 +151,7 @@ for i, (jn, dd, col, jmd, yl, ttl) in enumerate(rows):
 fig.suptitle("圖 2　同一個 1 kg 砝碼：頻率越高，量到的 ΔJ 越大（J1 只有 1 Hz 接近控制器的值）", x=0.01, ha="left",
              fontsize=13.5, color=INK)
 fig.text(0.01, 0.005, "ΔJ = J(2.31 kg) - J(1.30 kg)，手臂朝上，同一天、同一方向相減後兩個方向加權平均。左右兩欄是兩種振幅，"
-         "不畫誤差棒（標準差見內文）。電流 × 13.64。\n控制器 ΔJ_model：target_moment 對 target_qdd 回歸，2.31 kg 減 1.30 kg。"
+         "誤差棒為標準差。電流 × 13.64。\n控制器 ΔJ_model：target_moment 對 target_qdd 回歸，2.31 kg 減 1.30 kg。"
          "J1 的模型：J_量 = s·J / (1 - J·ω²/k)，12 個條件擬合（s = 1.095、J = 5.55、k = 6898 N·m/rad；χ² = 42，自由度 9）。",
          ha="left", va="bottom", fontsize=9, color=INK2, linespacing=1.5)
 fig.tight_layout(rect=(0, 0.05, 1, 0.96))
