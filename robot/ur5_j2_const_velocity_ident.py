@@ -36,7 +36,7 @@ DIAG 時 H̄ 與 target_moment 窗口平均之比、兩姿態窗口內兩者對�
       DIAG 52.29°～89.71°：不低於診斷原點（前臂只往上抬）；法蘭 0.43～0.75 m。
     全部段跑完後 movej 回到開始角度（UP 0°、DIAG 90°）。
   - 法蘭離 J2 軸 0.49 m（兩個姿態相同）：0.20 rad/s 時 0.10 m/s。
-  - FULL 每個方向 12 段，約 2.4 分鐘。
+  - FULL 每個方向 18 段，約 7.1 分鐘（11/19 起加 0.005、0.01、0.03 rad/s 三個低速檔；0.005 單段約 75 s）。
 
 ★★★ 使用前必讀 ★★★
 1. 【新程式，尚未上機】依 TEST_STAGE = QUICK → MID → FULL 階梯執行。
@@ -82,10 +82,10 @@ JOINT_INDEX = 2               # J2（肘關節）
 DIRECTION = +1        # +1 = J2 角度增加（前臂往前傾），-1 = J2 角度減少（前臂往後仰）。兩個方向分開執行，不要自動連續做
 # QUICK: 單一檔 0.05 rad/s、窗口 1 個馬達圈（3.56°），驗證方向、角度停止與 movej 定位
 # MID  : 三檔 0.05 / 0.12 / 0.20 rad/s、完整窗口、只升速一趟，驗證多段與較長腳本
-# FULL : 六檔、完整窗口、先升後降（12 段）
+# FULL : 九檔、完整窗口、先升後降（18 段）
 TEST_STAGE = "QUICK"
 
-SPEED_LEVELS = [0.02, 0.05, 0.08, 0.12, 0.16, 0.20]   # rad/s（同 J0、J1）
+SPEED_LEVELS = [0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.20]   # rad/s；11/19 起低速加密（加 0.005、0.01、0.03）：低速是 Stribeck 區，文獻指出磨耗最先出現在低速
 SPEED_ORDER = "UP_DOWN"                              # FULL 用；"UP" 或 "UP_DOWN"
 
 GEAR_RATIO = 101
@@ -404,7 +404,7 @@ def build_urscript(segs, direction, joint_index, q_others, accel, decel,
         qd[joint_index] = f"{direction * s['speed']:.6f}"
         qd_str = "[" + ", ".join(qd) + "]"
         stop_rad = math.radians(s["stop_cmd_deg"])
-        lines.append(f"  # segment {s['index'] + 1}: {s['speed']:.2f} rad/s")   # URScript 內只放 ASCII
+        lines.append(f"  # segment {s['index'] + 1}: {s['speed']:.3f} rad/s")   # URScript 內只放 ASCII
         lines.append(f"  movej({q_t_str}, a={movej_accel}, v={movej_vel})")
         lines.append(f"  sleep({pause_time})")
         lines.append("  q_now = get_actual_joint_positions()")
@@ -666,7 +666,7 @@ def analyze_angle_window(csv_path, joint_index, kt_out, direction, speed_levels,
 
     print(f"{'段':>3}{'速度':>7}{'樣本':>6}{'覆蓋馬達圈':>10}{'平均qd':>10}{'平均tau':>10}{'平均tm':>10}")
     for k, s in enumerate(segments):
-        print(f"{k+1:3d}{s['speed']:7.2f}{s['n']:6d}{s['revs']:10.2f}{s['qd_mean']:10.4f}"
+        print(f"{k+1:3d}{s['speed']:7.3f}{s['n']:6d}{s['revs']:10.2f}{s['qd_mean']:10.4f}"
               f"{s['tau_mean']:10.3f}{s['tm_mean']:10.3f}")
     out = dict(segments=segments, q_deg=q, tau=tau, tm=tm, t=t)
     if len(segments) < 2:
@@ -772,7 +772,7 @@ def main():
     theta_a, theta_b = window_bounds_deg(POSES[POSE]["center_deg"], n_revs, GEAR_RATIO)
     segs = plan_segments(speeds, DIRECTION, theta_a, theta_b, SPEEDJ_ACCEL, STOPJ_DECEL,
                          SETTLE_TIME, OVERRUN_DEG, LOOP_TIME_FACTOR, DT)
-    print(f"模式: {TEST_STAGE}，速度順序: {[f'{v:.2f}' for v in speeds]}")
+    print(f"模式: {TEST_STAGE}，速度順序: {[f'{v:.3f}' for v in speeds]}")
     print(f"角度窗口: {theta_a:.3f}° 至 {theta_b:.3f}°（{n_revs} 個馬達圈 = {theta_b - theta_a:.3f}°）")
 
     ok, report, (lo_plan, hi_plan) = safety_check(

@@ -243,7 +243,7 @@ class TestPlan(Base):
             _, _, sn = plan(m, "FULL", -1, pose)
             self.assertAlmostEqual(tb - ta, 6 * 360 / 101, places=9)
             self.assertAlmostEqual((ta + tb) / 2, c, places=9)
-            self.assertEqual(len(sp), 12)
+            self.assertEqual(len(sp), 2 * len(m.SPEED_LEVELS))
             self.assertEqual([s["speed"] for s in sp], m.SPEED_LEVELS + m.SPEED_LEVELS[::-1])
             for a, b in zip(sp, sn):
                 self.assertAlmostEqual(a["start_deg"] - c, -(b["start_deg"] - c), places=9)
@@ -585,7 +585,7 @@ class TestAnalysis(unittest.TestCase):
             for d in (+1, -1):
                 ta, tb, res[d] = synth(m, pose, "FULL", d, lambda d_, v, h: B0 * d_ * v + TC0 * d_ + h,
                                        noise=0.4, ripple=1.0, seed=int(d > 0))
-                self.assertEqual(len(res[d]["segments"]), 12)
+                self.assertEqual(len(res[d]["segments"]), 2 * len(m.SPEED_LEVELS))
                 for sg in res[d]["segments"]:
                     self.assertAlmostEqual(sg["revs"], 6.0, delta=0.05)
                 self.assertAlmostEqual(res[d]["B_up"], res[d]["B_down"], delta=0.5)

@@ -11,6 +11,8 @@
 用途：11/12 的資料顯示平台會跟著手臂晃（平台搖晃模型：關節鎖住時的共振就是敲擊的 4.3 Hz，J1 的 J 隨頻率上升可由它解釋）。
 工具加速度減去「編碼器角加速度 × 工具到關節軸的距離」，就是平台晃動的量，可以把它補回關節加速度再回歸 J，不必只靠模型。預估 2～3 Hz 時平台晃動約是關節加速度的 10～40%，1 Hz 約 3%。
 
+**新增（11/18 晚）：定速加低速檔**。J2、J3 定速的 `SPEED_LEVELS` 從 6 檔改成 9 檔：0.005、0.01、0.02、0.03、0.05、0.08、0.12、0.16、0.20 rad/s。文獻（Bittencourt 2011、DLR 2018/2019）指出低速的 Stribeck 區對磨耗最敏感，諧波減速機的黏滯也不是線性，低速要密。FULL 每個方向 18 段、約 7.1 分鐘（原本 2.4 分鐘），0.005 那一段單程約 75 s，看起來很慢是正常的；所有段的角度範圍和原本相同，安全視窗不用改。QUICK、MID 不變。程式的結束判定門檻 0.002 rad/s，低於最低速 0.005；如果 0.005 那段中途程式就判定結束（終端機顯示結束但手臂還在動），記下來，回來再改門檻。
+
 J0 已知質量重做（README「J0 已知質量重做」）這次不排：J1、J2 用重力斜率已經得到換算比例約 12.1，J0 的換算比例等 J1 低頻的結果出來再決定怎麼做。
 
 ## 上機前（在實驗室電腦上）
@@ -30,15 +32,15 @@ J0 已知質量重做（README「J0 已知質量重做」）這次不排：J1、
 | # | 姿態 | 負載 | 程式與設定 | 階段 | 預估時間 | 優先 |
 |---|------|------|------------|------|----------|------|
 | 1 | DIAG | 1.30 | `ur5_tap_test_record.py`：`POSE = "DIAG"`，`TAP_LABEL` = `none` → `fb` → `lr` | 各 14 s | 5 分 | 3 |
-| 2 | DIAG | 1.30 | `ur5_j2_const_velocity_ident.py`：`POSE = "DIAG"`，`J2_SAFE_MIN_DEG/MAX` = 48 / 93 | QUICK±、MID±、FULL± | 8 分 | 2 |
-| 3 | DIAG | 1.30 | `ur5_j3_const_velocity_ident.py`：`POSE = "DIAG"`，`J3_SAFE_MIN_DEG/MAX` = −131 / −87 | QUICK±、MID±、FULL± | 8 分 | 4 |
+| 2 | DIAG | 1.30 | `ur5_j2_const_velocity_ident.py`：`POSE = "DIAG"`，`J2_SAFE_MIN_DEG/MAX` = 48 / 93 | QUICK±、MID±、FULL± | 18 分 | 2 |
+| 3 | DIAG | 1.30 | `ur5_j3_const_velocity_ident.py`：`POSE = "DIAG"`，`J3_SAFE_MIN_DEG/MAX` = −131 / −87 | QUICK±、MID±、FULL± | 18 分 | 4 |
 | 4 | DIAG | 1.30 | `ur5_j3_velocity_modulation_ident.py`：`POSE = "DIAG"`，`J3_SAFE_MIN_DEG/MAX` = −131 / −87 | QUICK±、MID±、FULL± | 15 分 | 2 |
 | 5 | UP | 1.30 | `ur5_j1_velocity_modulation_ident.py`：`CONDITION_SET = "LOWF"`，`J1_SAFE_MIN_DEG/MAX` = −114 / −70 | QUICK±、MID±、FULL± | 13 分 | **1** |
 | 6 | UP | 2.31 | 同 #5（裝紙杯，`PAYLOAD_KG = 2.31`） | QUICK+、FULL± | 11 分 | **1** |
-| 7 | UP, J3 = −130° | 1.30 | `ur5_j3_const_velocity_ident.py`：`POSE = "UP"`，`J3_SAFE_MIN_DEG/MAX` = −153 / −109 | QUICK±、MID±、FULL± | 8 分 | 2 |
+| 7 | UP, J3 = −130° | 1.30 | `ur5_j3_const_velocity_ident.py`：`POSE = "UP"`，`J3_SAFE_MIN_DEG/MAX` = −153 / −109 | QUICK±、MID±、FULL± | 18 分 | 2 |
 | 8 | UP, J3 = −130° | 1.30 | `ur5_j3_velocity_modulation_ident.py`：`POSE = "UP"`，`J3_SAFE_MIN_DEG/MAX` = −153 / −109 | QUICK±、MID±、FULL± | 15 分 | 3 |
 
-運動時間合計約 85 分鐘；加上換姿態、換負載、每段人工確認，約 2～2.5 小時。時間不夠時依「優先」欄取捨：#5、#6 一定要做（同一天、負載相鄰才能比 ΔJ）；J3 的定速與速度調變至少各做一個姿態（#3 或 #7、#4）。
+運動時間合計約 115 分鐘（定速加了低速檔，每項多約 10 分）；加上換姿態、換負載、每段人工確認，約 2.5～3 小時。時間不夠時依「優先」欄取捨：#5、#6 一定要做（同一天、負載相鄰才能比 ΔJ）；J3 的定速與速度調變至少各做一個姿態（#3 或 #7、#4）。
 
 ### 換姿態
 
