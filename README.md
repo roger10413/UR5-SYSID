@@ -17,6 +17,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 - **J1 低頻速度調變**（2026/11/16 新增，尚未上機）：J1 速度調變程式的條件組 `CONDITION_SET = "LOWF"`（0.5～2 Hz，調變 4 s），檢查 J 隨頻率上升是否來自 4～6 Hz 的彈性模態；預設仍為 11/5、11/12 的 `STD`
 - **J3 定速法**（2026/11/16 新增，尚未上機）：J3（手腕 1）同 J1、J2 定速。以手臂朝上、J3 轉到 −130°（`UP`，窗口中心在 J3 重力零點 −131.2°）為主，診斷原點（`DIAG`，窗口中心 −109°，重力約 +3.3 N·m）作對照；J3 的換算比例未知，`B`、`Tc` 暫以 J0～J2 的 13.64 換算
 - **J3 速度調變法**（2026/11/17 新增，尚未上機）：J3 同 J2 速度調變，模型含重力項 → J3 的 `J`。J3 慣量小（官方連桿 + 末端工具約 0.06 kg·m²），速度振幅改為 J2 的 1.5 倍（最大加速度 1.70 rad/s²）；以診斷原點（`DIAG`，調變段中心 −109°，重力對角度的斜率小）為主，`UP`（J3 = −130°，中心在重力零點）作對照
+- **J4、J5 定速法與速度調變法**（2026/11/19 新增，尚未上機）：J4（手腕 2）、J5（手腕 3）由 J3 的兩支程式改寫，定速同樣 9 檔速度、速度調變同 J3 的條件。各選一個重力恆為 0 的姿態為主：J4 用手臂朝上、工具朝前水平（`UP`，同 J1 速度調變的 UP，J4 轉軸垂直），J5 用診斷原點（`DIAG`，J5 轉軸垂直）；另一個姿態作對照（J4 `DIAG` 像單擺，重力最大 2.34 N·m；J5 `UP` 重力 ≤ 0.02 N·m，但工具重量橫向壓在軸承上）
 
 本 repo 只含程式與文件，不含真機量測資料。
 
@@ -24,7 +25,7 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 
 `robot/` 內的腳本**會透過 URScript（port 30002）直接驅動真實機械臂**。
 
-- 2026/11/16～17 新增的 `ur5_j3_const_velocity_ident.py`、`ur5_j3_velocity_modulation_ident.py` 與 J1 速度調變的 `LOWF` 條件組只通過離線測試、尚未上機，本週上機計畫見 [`docs/RUN_PLAN_1119.md`](docs/RUN_PLAN_1119.md)，待審查的內容見 [`docs/REVIEW_1117.md`](docs/REVIEW_1117.md)。其餘上機程式都已通過審查。最近三次上機：2026/10/29 暖機、定速、速度調變 6 個條件（`DIAG`、`EXT45`，含夾砝碼）、J1 靜止電流；2026/11/05 在手臂朝上 `UP`：J1 定速、J1 速度調變（各 QUICK、FULL 正反轉）、J0 速度調變（FULL 正轉）；2026/11/12：J1 定速（`DIAG` FULL 正反轉、`UP` FULL 正轉）、J1 速度調變 `UP`（FULL 正反轉，末端工具 1.30 kg 與加紙杯砝碼 2.31 kg）、J2 定速 `UP`（FULL 正反轉）、J2 速度調變 `UP`（FULL 正反轉，1.30 與 2.31 kg）、敲擊測試 `UP`。
+- 2026/11/16～19 新增的 `ur5_j3_const_velocity_ident.py`、`ur5_j3_velocity_modulation_ident.py`、J4、J5 的定速與速度調變（`ur5_j4_*`、`ur5_j5_*`）與 J1 速度調變的 `LOWF` 條件組只通過離線測試、尚未上機，本週上機計畫見 [`docs/RUN_PLAN_1119.md`](docs/RUN_PLAN_1119.md)，待審查的內容見 [`docs/REVIEW_1117.md`](docs/REVIEW_1117.md)。其餘上機程式都已通過審查。最近三次上機：2026/10/29 暖機、定速、速度調變 6 個條件（`DIAG`、`EXT45`，含夾砝碼）、J1 靜止電流；2026/11/05 在手臂朝上 `UP`：J1 定速、J1 速度調變（各 QUICK、FULL 正反轉）、J0 速度調變（FULL 正轉）；2026/11/12：J1 定速（`DIAG` FULL 正反轉、`UP` FULL 正轉）、J1 速度調變 `UP`（FULL 正反轉，末端工具 1.30 kg 與加紙杯砝碼 2.31 kg）、J2 定速 `UP`（FULL 正反轉）、J2 速度調變 `UP`（FULL 正反轉，1.30 與 2.31 kg）、敲擊測試 `UP`。
 - `ur5_velocity_modulation_ident.py`（2026/10/19 新增）：前 4 個條件與 `EXT45` 為 commit `72591a7`，2026/10/22 上機；條件 5、6、負載確認、教導器速度滑桿檢查為 commit `130be1d`，2026/10/29 上機（`DIAG`、`EXT45`，含夾砝碼）；姿態 `UP` 2026/11/05 上機（FULL 正轉）。新的條件或姿態仍請依 `TEST_STAGE` = QUICK → MID → FULL 執行。
   - 姿態 `POSE` 預設 `DIAG`（診斷原點）。`EXT45`（J1、J2 = −45°、45°，法蘭離 J0 軸約 0.80 m）、`UP`（只把 J2 轉到 0°，手臂朝上、工具朝水平，法蘭在底座上方約 1.0 m、離 J0 軸約 0.14 m）時程式**不移動 J1~J5**：須先以教導器擺好、確認 J0 掃過的扇形範圍淨空並輸入姿態名稱；連上 RTDE 後以實際角度檢查 J1~J5（±0.5°），不符或姿態名稱未知即中止。結束後 J1~J5 仍在該姿態，請以教導器移回。
   - `UP` 用來直接確認控制器模型中的 1.915 kg·m² 是否在電流中：官方連桿 + 末端工具只有約 0.19 kg·m²，控制器 `J_model` 約 2.10；實測 `J` 約 0.25 表示不在，約 2.6 以上表示在。2026/11/05 實測 0.09～0.37：J0 電流中沒有 1.915。
@@ -36,10 +37,11 @@ tau = J·qdd + B·qd + Tc·sign(qd),   tau = i × Kt × 101
 - `ur5_j2_velocity_modulation_ident.py`（2026/11/09 新增；2026/11/12 `UP` 上機：FULL 正反轉，1.30 與 2.31 kg）：J2 速度調變，做法同 J1 速度調變（模型加重力項）；J2 的慣量比 J1 小，巡航速度與 6 個條件用 J0 的（0.12 rad/s，加速度振幅 0.19～1.13 rad/s²），調變 3 s。調變段中心 UP −5.7°、DIAG 71°，規劃範圍都在 J2 定速 FULL 的範圍內（FULL 兩方向合計含餘裕：UP 約 −25.9°～+14.5°，DIAG 約 50.8°～91.2°）。UP 不放重力項時 1 Hz 的 J 會偏高約 +0.59 kg·m²（J1 約 +1.7）。安全檢查同 J2 定速。離線測試 `tests/test_j2_velmod_offline.py`。
 - `ur5_j3_const_velocity_ident.py`（2026/11/16 新增，尚未上機）：J3（手腕 1）固定角度窗口定速，做法同 J2 定速（6 個馬達圈、6 個速度）。J0~J2、J4、J5 不動，只轉 J3，結束時回到開始角度（UP −130°、DIAG −90°）。姿態 `POSE` 預設 `UP`（從診斷原點以教導器把 J2 轉到 0°、J3 轉到 −130°；FULL 時 J3 在 −149.91°～−112.49°，工具朝前上方 22°～60°，法蘭離底座安裝面 1.02～1.03 m）；對照為 `DIAG`（診斷原點；J3 在 −127.71°～−90.29°，只往工具前傾的一側轉，法蘭 0.43～0.51 m）。六軸姿態檢查、姿態名稱、J3 安全視窗（`J3_SAFE_MIN_DEG` / `J3_SAFE_MAX_DEG`，未設定即中止）、法蘭高度（≥ 0.40 m）與線速度（法蘭離 J3 軸 0.125 m，0.20 rad/s 時 0.025 m/s）、負載、速度滑桿、第一次 movej 距離上限都同 J2 定速。`KT_OUT` 暫用 J0～J2 的值，減速比 101 也是沿用（待確認）。UP 跑完後請以教導器把 J3 轉回 −90°、J2 轉回 90°。離線測試 `tests/test_j3_constvel_offline.py`。
 - `ur5_j3_velocity_modulation_ident.py`（2026/11/17 新增，尚未上機）：J3 速度調變，做法同 J2 速度調變（巡航 0.12 rad/s、調變 3 s、6 個條件 × 7 次）。J3 慣量小，速度振幅為 J2 的 1.5 倍：(1 Hz, 0.09)、(2 Hz, 0.09)、(3 Hz, 0.09)、(2 Hz, 0.045)、(1 Hz, 0.045)、(3 Hz, 0.06) rad/s，加速度振幅 0.57～1.70 rad/s²，調變段 speedj 加速度上限 2.0 rad/s²（J0～J2 為 1.5）。姿態 `POSE` 預設 `DIAG`（調變段中心 −109°；FULL 時 J3 在 −127.2°～−90.8°，不超過 −90°）；對照為 `UP`（同 J3 定速 UP，中心 −131.2°；J3 在 −149.4°～−113.0°）。兩個姿態的範圍都在 J3 定速 FULL 範圍內，安全視窗與各項檢查同 J3 定速。`KT_OUT` 暫用 13.64，`J` 先當相對值，控制器的 `J_model` 可作對照。離線測試 `tests/test_j3_velmod_offline.py`。
+- `ur5_j4_const_velocity_ident.py`、`ur5_j4_velocity_modulation_ident.py`、`ur5_j5_const_velocity_ident.py`、`ur5_j5_velocity_modulation_ident.py`（2026/11/19 新增，尚未上機）：由 J3 的兩支程式改寫，只轉 J4 或 J5，結束時回到開始角度（J4 −90°、J5 0°）。兩個姿態的窗口與調變段中心相同（J4 −90°、J5 0°），所以安全視窗也相同：定速 FULL 含餘裕 J4 為 −110.71°～−69.29°（例如 −112、−68），J5 為 −20.71°～+20.71°（例如 −22、22），速度調變的範圍在其內。各項檢查同 J3（六軸姿態、姿態名稱、`J4_SAFE_*` / `J5_SAFE_*` 未設定即中止、法蘭高度與線速度、負載、速度滑桿、第一次 movej 距離）。J5 轉動會扭到工具線材，執行前確認線材有餘裕。`UP` 跑完後請以教導器把 J2 轉回 90°。離線測試 `tests/test_j4j5_constvel_offline.py`、`tests/test_j4j5_velmod_offline.py`。
 - `ur5_tap_test_record.py`（2026/11/10 新增；2026/11/12 `UP` 上機：1.30 kg 的 none、fb、lr，2.31 kg 的 fb、lr）：敲擊測試，**只記錄、不送任何指令**（只用 RTDE 讀取，程式裡沒有運動指令，也不開送指令用的連線）。手臂停在指定姿態（`UP`、`DIAG`、`EXT45`，沒有程式在跑、伺服保持），操作者照畫面提示輕敲工具，記錄 14 s 的六軸角度、電流、工具端加速度計等，結束後列出各訊號的餘振峰值頻率。執行前檢查六軸姿態（±0.5°）、手臂靜止、機器人在一般模式（robot_mode = 7）、安全模式正常（safety_mode = 1）、負載確認；記錄中若觸發保護性停止或有軸角度變化超過 0.5°，結束後警告這次資料不可用。離線測試 `tests/test_tap_test_offline.py`。
 - 教導器速度滑桿（2026/10/26 起，所有會動手臂的上機程式都有）：連上 RTDE 後讀 `target_speed_fraction`，不是 100% 或讀不到即中止（10/22 冷機定速因滑桿停在 52% 而作廢）；暖機每批送出前再檢查一次。執行中的值逐列寫進 CSV（`target_speed_fraction` 欄），最低值寫進摘要，低於 100% 時結束後警告這次的資料不可用。
 - 在能連到機台的電腦上，請勿直接執行主程式；離線檢查請只用 `py_compile` 或 `tests/`（測試會封鎖網路並使用假的 RTDE）。
-- 執行前務必確認 `ROBOT_IP`、J0 安全視窗（`J0_SAFE_MIN_DEG` / `J0_SAFE_MAX_DEG`；J1、J2 程式為 `J1_SAFE_*`、`J2_SAFE_*`，未設定時程式會中止）、手臂周圍淨空，並有人在緊急停止按鈕旁。
+- 執行前務必確認 `ROBOT_IP`、J0 安全視窗（`J0_SAFE_MIN_DEG` / `J0_SAFE_MAX_DEG`；J1～J5 的程式為 `J1_SAFE_*`～`J5_SAFE_*`，未設定時程式會中止）、手臂周圍淨空，並有人在緊急停止按鈕旁。
 - 正轉、反轉分開執行，每個方向結束後人工確認。
 
 ## 目錄
@@ -58,6 +60,10 @@ robot/                                   上機腳本（會送指令給機械臂
   ur5_j2_velocity_modulation_ident.py    J2 速度調變：同 J1 速度調變，條件同 J0 → J2 的 J，並含離線分析函式
   ur5_j3_const_velocity_ident.py         J3 固定角度窗口定速：手臂朝上、J3 轉到 −130° 時窗口中心在 J3 重力零點 → J3 的 B、Tc，並含離線分析函式
   ur5_j3_velocity_modulation_ident.py    J3 速度調變：同 J2 速度調變，振幅 1.5 倍（J3 慣量小），以診斷原點為主 → J3 的 J，並含離線分析函式
+  ur5_j4_const_velocity_ident.py         J4 固定角度窗口定速：手臂朝上、工具朝前水平時 J4 轉軸垂直、沒有重力 → J4 的 B、Tc
+  ur5_j4_velocity_modulation_ident.py    J4 速度調變：同 J3 速度調變，以手臂朝上（無重力）為主 → J4 的 J
+  ur5_j5_const_velocity_ident.py         J5 固定角度窗口定速：診斷原點時 J5 轉軸垂直、沒有重力 → J5 的 B、Tc
+  ur5_j5_velocity_modulation_ident.py    J5 速度調變：同 J3 速度調變，以診斷原點為主 → J5 的 J
   ur5_tap_test_record.py                 敲擊測試（只記錄、不送指令）：手臂靜止時輕敲工具，由餘振找手臂的固有頻率，並含離線分析函式
   ur5_home_pose.py                       診斷原點姿態檢查（預設只檢查、不移動）
 tests/                                   離線測試（假 RTDE、封鎖網路）
@@ -213,6 +219,32 @@ j3.combine_directions(rp, rn)
 ```python
 import ur5_j3_velocity_modulation_ident as v3
 r = v3.analyze_j3_velocity_modulation("FULL 的 CSV 路徑", 3, v3.KT_OUT, +1, v3.CONDITIONS, v3.V_CRUISE)   # 反轉用 -1
+```
+
+## J4、J5 定速與速度調變（`ur5_j4_*`、`ur5_j5_*`）
+
+做法、檢查與輸出格式同 J3 定速與 J3 速度調變，只轉 J4 或 J5。重力以 UR 官方連桿質量與重心 + 末端工具 1.30 kg（重心 (1, 1, 74) mm）計算。
+
+| 軸 | 姿態 | 六軸開始角度 | 窗口 / 調變段中心 | 重力 | 用途 |
+|---|---|---|---|---|---|
+| J4 | `UP`（預設） | J2 = 0°、J3 = −90°（同 J1 速度調變的 UP，工具朝前水平） | −90° | J4 轉軸垂直，恆為 0 | 主要 |
+| J4 | `DIAG` | 診斷原點 | −90°（工具朝下；重力零點 −89.7°） | 像單擺，最大 2.34 N·m；窗口內 −0.42～+0.45 N·m；1 Hz 假慣量約 −0.06 kg·m² | 對照 |
+| J5 | `DIAG`（預設） | 診斷原點 | 0° | J5 轉軸垂直，恆為 0 | 主要 |
+| J5 | `UP` | 同 J4 的 UP | 0° | ≤ 0.02 N·m（工具重心離軸 1.4 mm），但工具重量橫向壓在軸承上 | 對照 |
+
+- 慣量：J4 帶動手腕 3 與末端工具（當成質點約 0.033 kg·m²，工具本身的轉動慣量未計）；J5 只有工具繞自身軸的轉動慣量（未知）。兩者都另加馬達轉子，兩個姿態相同。J5 的慣性力矩可能很小，QUICK、MID 跑完先看 `J` 的標準差。
+- 換算比例未知：`KT_OUT` 暫用 13.64（CSV 存原始電流，事後可重算）。重力都太小，不能估換算比例：`combine_directions` 只在 target_moment 對角度的斜率 ≥ 0.02 N·m/° 時算 `K_slope`（只有 J4 `DIAG` 會算，只作參考）。
+- 時間（每個方向）：定速 FULL 18 段約 7.1 分鐘；速度調變 FULL 42 段約 6 分鐘。
+
+```python
+import ur5_j4_const_velocity_ident as j4                     # J5 把 4 換成 5
+ta, tb = j4.window_bounds_deg(j4.POSES["UP"]["center_deg"], j4.N_MOTOR_REVS_WINDOW, j4.GEAR_RATIO)
+rp = j4.analyze_angle_window("正轉 FULL 的 CSV 路徑", 4, j4.KT_OUT, +1, j4.SPEED_LEVELS, ta, tb)
+rn = j4.analyze_angle_window("反轉 FULL 的 CSV 路徑", 4, j4.KT_OUT, -1, j4.SPEED_LEVELS, ta, tb)
+j4.combine_directions(rp, rn)
+
+import ur5_j4_velocity_modulation_ident as v4
+r = v4.analyze_j4_velocity_modulation("FULL 的 CSV 路徑", 4, v4.KT_OUT, +1, v4.CONDITIONS, v4.V_CRUISE)   # 反轉用 -1
 ```
 
 ## 敲擊測試（`ur5_tap_test_record.py`）
