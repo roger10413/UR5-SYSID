@@ -14,6 +14,7 @@
 import os
 import sys
 import math
+import types
 import builtins
 import unittest
 import importlib.util
@@ -121,8 +122,11 @@ class Main(unittest.TestCase):
     def setUp(self):
         self.sent = []
         self._rtde, self._send, self._input = gp.rtde_receive, gp.send_urscript, builtins.input
+        self._time = gp.time
+        self.clock = [0.0]
+        # 換掉 gp 自己的 time 參照（不要改到全域 time 模組，否則會影響其他測試）
+        gp.time = types.SimpleNamespace(sleep=lambda s: None, time=lambda: self.clock[0])
         gp.rtde_receive = type("M", (), {"RTDEReceiveInterface": FakeRTDE})
-        gp.time.sleep = lambda s: None
 
         def fake_send(ip, text, port=30002):
             self.sent.append(text)
@@ -132,8 +136,7 @@ class Main(unittest.TestCase):
 
     def tearDown(self):
         gp.rtde_receive, gp.send_urscript, builtins.input = self._rtde, self._send, self._input
-        import time as _t
-        gp.time.sleep = _t.sleep
+        gp.time = self._time
         FakeRTDE.q_deg, FakeRTDE.move_to = list(gp.POSES["DIAG"]), None
 
     def run_main(self, argv, answer="y"):
@@ -167,16 +170,11 @@ class Main(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
     def test_timeout_sends_stop(self):
-        gp_t = gp.time.time
-        t = [0.0]
         def fake_time():
-            t[0] += 5.0
-            return t[0]
+            self.clock[0] += 5.0
+            return self.clock[0]
         gp.time.time = fake_time
-        try:
-            rc, out = self.run_main(["UP"])      # move_to=None：手臂不動
-        finally:
-            gp.time.time = gp_t
+        rc, out = self.run_main(["UP"])          # move_to=None：手臂不動
         self.assertEqual(rc, 1)
         self.assertIn("逾時", out)
         self.assertTrue(any("stopj(2.0)" in s for s in self.sent))
