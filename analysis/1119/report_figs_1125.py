@@ -1,5 +1,5 @@
 """11/25 報告的圖（11/19 上機）。
-圖 2：J1 速度調變，J 對頻率：11/5、11/12、11/19 三次（1.30 kg），11/12、11/19 加砝碼（2.31 kg）。
+圖 2：J1 速度調變，J 對頻率：11/12、11/19 兩次（1.30 kg），11/12、11/19 加砝碼（2.31 kg）。
 圖 3：J1 砝碼的 ΔJ 對頻率：11/12 與 11/19，和控制器 ΔJ_model 比。
 圖 1：J2～J5 定速 DIAG：扣掉窗口內平均重力後的力矩對速度，Tc + B·v。
 圖 4：手腕 J3～J5 速度調變的 J（負值），和控制器 J_model 比。
@@ -89,7 +89,7 @@ def label_right(ax, pp, col, yl, fmt="{:.2f}"):
 AMP_TTL = ((True, "大振幅 0.04 rad/s"), (False, "小振幅 0.02 rad/s（3 Hz 為 0.027）"))
 
 # ---------------- 圖 1：J1 三次上機 ----------------
-runs = (("1105_p130", GRAY, "11/5　1.30 kg", "^"), ("1112_p130", BLUE, "11/12　1.30 kg", "o"),
+runs = (("1112_p130", BLUE, "11/12　1.30 kg", "o"),
         ("1119_p130", GREEN, "11/19　1.30 kg", "D"), ("1112_p231", ORANGE, "11/12　2.31 kg（加砝碼）", "s"),
         ("1119_p231", RED, "11/19　2.31 kg（加砝碼）", "P"))
 pts = {r: j1_points(r) for r, *_ in runs}
@@ -112,10 +112,10 @@ axs[0].legend(loc="upper left", frameon=False, fontsize=10.5)
 for jm, col, txt in ((jm130, BLUE, "1.30 kg"), (jm231, ORANGE, "2.31 kg")):
     axs[1].text(3.35, jm, f"控制器 J_model {jm:.2f}\n（{txt}）", ha="left", va="center", fontsize=10, color=col,
                 linespacing=1.3)
-fig.suptitle("圖 2　J1 速度調變：11/12 與 11/19 幾乎重合，11/5 偏低", x=0.01, ha="left", fontsize=13.5, color=INK)
+fig.suptitle("圖 2　J1 速度調變：11/12 與 11/19 幾乎重合", x=0.01, ha="left", fontsize=13.5, color=INK)
 fig.text(0.01, 0.005, "手臂朝上，調變段中心 -92°（重力零點），巡航 0.08 rad/s，STD 條件組。每點為一個條件正反轉的加權平均，"
          f"誤差棒為單輪回歸的標準差（大多比點小）。電流 × {K1}（J1 砝碼校正）。\n"
-         "虛線為控制器的 J_model。J1 溫度：11/5 約 30.7 °C、11/12 約 29.9 °C、11/19 約 33.0 °C。", ha="left", va="bottom",
+         "虛線為控制器的 J_model。J1 溫度：11/12 約 29.9 °C、11/19 約 33.0 °C。", ha="left", va="bottom",
          fontsize=9, color=INK2, linespacing=1.5)
 fig.tight_layout(rect=(0, 0.06, 0.93, 0.95))
 f1 = save(fig, "w1125_fig2_j1_velmod_3runs.png")
