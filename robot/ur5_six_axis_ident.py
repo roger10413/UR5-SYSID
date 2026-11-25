@@ -60,7 +60,8 @@ rtde_receive = vm.rtde_receive
 ROBOT_IP = "192.168.50.114"   # 執行前請再次確認
 MODE = "CONSTVEL"             # "CONSTVEL"（B、Tc）或 "VELMOD"（J）
 # QUICK: CONSTVEL 單一速度 0.05 去回各一段；VELMOD 第一個條件去回各一段 —— 驗證六軸同步、角度停止與 movej 定位
-# MID  : CONSTVEL 三檔速度；VELMOD 六個條件各一次
+#        （VELMOD QUICK 每條件只有 1 段，不算 J）
+# MID  : CONSTVEL 三檔速度；VELMOD 條件 2、4（2 Hz 大／小振幅）各兩次
 # FULL : CONSTVEL 九檔先升後降；VELMOD 六個條件 × N_REPEAT 次（起點錯開）
 TEST_STAGE = "QUICK"
 
@@ -165,7 +166,7 @@ def stage_config(mode, stage):
         if stage == "QUICK":
             return [0], 1
         if stage == "MID":
-            return list(range(len(TIERS))), 1
+            return [1, 3], 2               # 分析每個條件每個方向至少要 2 段才算 J
         if stage == "FULL":
             return list(range(len(TIERS))), N_REPEAT
     raise ValueError(f"未知的 MODE / TEST_STAGE: {mode} / {stage}")
@@ -501,6 +502,8 @@ def summary_lines(mode, res):
     else:
         for j, r in res.items():
             lines.append(f"J{j}（K {r['K_used']}）：")
+            if not r["per"]:
+                lines.append("   沒有結果（每個條件每個方向至少要 2 段；QUICK 只驗證動作，不算 J）")
             for ci in sorted(r["per"]):
                 f, A = r["conds"][ci]
                 p, n = r["per"][ci].get("pos", {}), r["per"][ci].get("neg", {})
@@ -533,7 +536,7 @@ def main():
         print(f"[中止] 未知的 MODE {MODE!r}"); return
     print(f"共 {len(segs)} 段，預估 {estimate_total_time(segs, pose_q, MODE, pose_q) / 60:.1f} 分鐘")
 
-    ok, report, (lo, hi) = safety_check(segs, MODE, pose_q)
+    ok, report, (lo, hi) = safety_check(segs, MODE, pose_q, safe_min=SAFE_MIN_DEG, safe_max=SAFE_MAX_DEG)
     print("\n".join(report))
     p_ok, p_msg = vm.check_payload_setting(PAYLOAD_KG)
     print(p_msg + ("  [OK]" if p_ok else "  [FAIL]"))

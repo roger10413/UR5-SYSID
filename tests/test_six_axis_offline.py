@@ -171,8 +171,11 @@ class Simulation(unittest.TestCase):
 
     def test_velmod_mid(self):
         _, res, Jt = sim.run("VELMOD", "MID", self.tmp.name, noise_a=0.0)
+        ci_mid, _ = six.stage_config("VELMOD", "MID")
         for j in range(6):
+            self.assertEqual(sorted(res[j]["per"]), ci_mid, f"J{j} 每個條件都要有結果")
             for ci, pp in res[j]["per"].items():
+                self.assertEqual(set(pp), {"pos", "neg"})
                 Jm = np.mean([pp[t]["J"] for t in pp])
                 self.assertAlmostEqual(Jm / Jt[j], 1.0, delta=0.10, msg=f"J{j} 條件 {ci}")
 
