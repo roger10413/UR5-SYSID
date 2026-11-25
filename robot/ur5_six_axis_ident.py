@@ -111,8 +111,9 @@ TOOL_TIP_Z_MIN_M = 0.30
 FLANGE_SPEED_MAX = 0.25        # 法蘭線速度上限 [m/s]
 SPEED_FRACTION_MIN = 0.999
 
-SAFE_MIN_DEG = (None, None, None, None, None, None)   # 六軸允許的絕對角度視窗：由操作者填寫，未填一律中止
-SAFE_MAX_DEG = (None, None, None, None, None, None)
+# 六軸允許的絕對角度視窗（未填一律中止）。11/25 使用者採用：FULL 規劃範圍（含 2° 餘裕）再往外約 5°
+SAFE_MIN_DEG = (155.0, -115.0, 45.0, -105.0, -125.0, -35.0)
+SAFE_MAX_DEG = (205.0, -65.0, 95.0, -35.0, -55.0, 35.0)
 
 PAYLOAD_KG = None
 PAYLOAD_TOL_KG = 0.005

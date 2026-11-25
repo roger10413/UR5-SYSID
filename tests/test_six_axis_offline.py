@@ -91,9 +91,17 @@ class VelmodPlan(unittest.TestCase):
 class Safety(unittest.TestCase):
     def test_windows_required(self):
         segs = six.plan_constvel([0.05], Q0)
-        ok, lines, _ = six.safety_check(segs, "CONSTVEL", Q0)
+        ok, lines, _ = six.safety_check(segs, "CONSTVEL", Q0, safe_min=(None,) * 6, safe_max=(None,) * 6)
         self.assertFalse(ok)
         self.assertTrue(any("視窗未設定" in s for s in lines))
+
+    def test_full_ok_with_configured_windows(self):
+        for mode in ("CONSTVEL", "VELMOD"):
+            c = six.stage_config(mode, "FULL")
+            segs = six.plan_constvel(c, Q0) if mode == "CONSTVEL" else six.plan_velmod(c[0], c[1], Q0)
+            ok, lines, _ = six.safety_check(segs, mode, Q0, n_check=11,
+                                            safe_min=six.SAFE_MIN_DEG, safe_max=six.SAFE_MAX_DEG)
+            self.assertTrue(ok, (mode, lines))
 
     def test_full_ok_with_wide_windows(self):
         for mode in ("CONSTVEL", "VELMOD"):
