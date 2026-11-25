@@ -57,6 +57,7 @@ class PoseConsistency(unittest.TestCase):
             "ur5_j4_velocity_modulation_ident": {"UP": "UP", "DIAG": "DIAG"},
             "ur5_j5_const_velocity_ident": {"UP": "UP", "DIAG": "DIAG"},
             "ur5_j5_velocity_modulation_ident": {"UP": "UP", "DIAG": "DIAG"},
+            "ur5_six_axis_ident": {"SIX": "SIX"},
         }
         for modname, m in expect.items():
             mod = load(modname)

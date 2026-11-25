@@ -6,6 +6,7 @@ UR5 自動換姿態（取代用教導器手動擺姿勢）
 用法（在 repo 根目錄）：
     python robot/ur5_goto_pose.py UP        # J1 速度調變（#5、#6）、J4/J5 的 UP
     python robot/ur5_goto_pose.py UP_J3     # J3 定速／速度調變的 UP（#7、#8）：UP 再把 J3 轉到 −130°
+    python robot/ur5_goto_pose.py SIX       # 六軸同時鑑別（ur5_six_axis_ident.py）的開始姿態
     python robot/ur5_goto_pose.py DIAG      # 診斷原點（收工或回到 DIAG 系列）
 不給參數時用下面的 TARGET。
 
@@ -47,6 +48,7 @@ POSES = {
     "DIAG": (180.0, -90.0, 90.0, -90.0, -90.0, 0.0),    # 診斷原點：前臂水平
     "UP": (180.0, -90.0, 0.0, -90.0, -90.0, 0.0),       # 手臂朝上、工具朝前水平（J1 速度調變、J4/J5 的 UP）
     "UP_J3": (180.0, -90.0, 0.0, -130.0, -90.0, 0.0),   # UP 再把 J3 轉到 −130°（J3 定速／速度調變的 UP）
+    "SIX": (180.0, -90.0, 70.0, -70.0, -90.0, 0.0),     # 六軸同時鑑別（ur5_six_axis_ident.py）：前臂往上 20°、工具垂直朝下
 }
 
 MOVE_VEL = 0.3          # movej 速度 [rad/s]
