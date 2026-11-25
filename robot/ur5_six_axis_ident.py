@@ -115,7 +115,7 @@ SPEED_FRACTION_MIN = 0.999
 SAFE_MIN_DEG = (155.0, -115.0, 45.0, -105.0, -125.0, -35.0)
 SAFE_MAX_DEG = (205.0, -65.0, 95.0, -35.0, -55.0, 35.0)
 
-PAYLOAD_KG = None
+PAYLOAD_KG = 1.30             # 末端工具（FT300、夾爪、3D 相機）；教導器負載須相同，執行時還要再輸入一次
 PAYLOAD_TOL_KG = 0.005
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
