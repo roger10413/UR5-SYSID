@@ -173,8 +173,8 @@ class TestLowFrequencySet(Base):
 
     def test_condition_sets(self):
         m = load("jv_sets")
-        self.assertEqual(m.CONDITION_SET, "STD", "預設仍是 11/5、11/12 的條件")
-        self.assertEqual(m.condition_set("STD"), (list(m.CONDITIONS), m.T_MOD))
+        self.assertEqual(m.CONDITION_SET, "RES", "11/26 上機預設用共振驗證條件組")
+        self.assertEqual(m.condition_set("STD"), (list(m.CONDITIONS), m.T_MOD), "CONDITIONS 仍是 STD（分析舊資料）")
         conds, t_mod = m.condition_set("LOWF")
         self.assertEqual(t_mod, 4.0)
         self.assertEqual(conds[0], m.CONDITIONS[0], "第 1 個條件 = STD 的條件 1（銜接舊資料）")
@@ -222,6 +222,49 @@ class TestLowFrequencySet(Base):
         scripts, _ = TestMain._run(self, m2)
         self.assertEqual(scripts, [])
         self.assertIn("未知的 CONDITION_SET", self.last_out)
+
+
+class TestResonanceSet(Base):
+    """共振驗證條件組 RES（LOWF + 3 Hz、3.5 Hz，調變 4 s）。"""
+
+    def test_res_conditions(self):
+        m = load("jv_res_sets")
+        conds, t_mod = m.condition_set("RES")
+        self.assertEqual(t_mod, 4.0)
+        self.assertEqual(conds[:5], m.condition_set("LOWF")[0], "前 5 個條件 = LOWF")
+        self.assertEqual(conds[5:], [(3.0, 0.027), (3.5, 0.0232)])
+        for f, a in conds:
+            self.assertAlmostEqual(f * t_mod, round(f * t_mod), places=9, msg="整數個週期")
+            self.assertGreaterEqual(m.V_CRUISE - a, m.V_MIN_ALLOWED - 1e-12, "速度不低於下限")
+            self.assertLess(2 * math.pi * f * a, m.MOD_ACCEL_LIMIT, "speedj 加速度上限足夠")
+        self.assertAlmostEqual(2 * math.pi * 3.0 * 0.027, 2 * math.pi * 3.5 * 0.0232, delta=0.002,
+                               msg="3 Hz 與 3.5 Hz 加速度振幅相同")
+
+    def test_res_ranges(self):
+        m = load("jv_res_plan")
+        lowf = {d: plan(m, "FULL", d, "LOWF") for d in (+1, -1)}
+        for stage, n_seg in (("QUICK", 1), ("MID", 7), ("FULL", 49)):
+            for d in (+1, -1):
+                segs = plan(m, stage, d, "RES")
+                self.assertEqual(len(segs), n_seg)
+                ok, lines, (lo, hi) = safety(m, segs, t_mod=4.0)
+                self.assertTrue(ok, "\n".join(lines))
+                self.assertGreaterEqual(lo, J1CV_FULL[0], f"{stage} {d:+d}")
+                self.assertLessEqual(hi, J1CV_FULL[1], f"{stage} {d:+d}")
+                if stage == "FULL":
+                    _, _, (lo2, hi2) = safety(m, lowf[d], t_mod=4.0)
+                    self.assertAlmostEqual(lo, lo2, places=6, msg="角度範圍同 LOWF")
+                    self.assertAlmostEqual(hi, hi2, places=6, msg="角度範圍同 LOWF")
+
+    def test_res_main_default(self):
+        m = load("jv_res_main")
+        m.J1_SAFE_MIN_DEG, m.J1_SAFE_MAX_DEG = WIN
+        scripts, files = TestMain._run(self, m)
+        self.assertEqual(len(scripts), 1)
+        self.assertIn("while (n < 500)", scripts[0], "QUICK = 1 Hz 條件，調變 4 s = 500 個週期")
+        self.assertTrue(any(n.startswith("j1velmod_data_up_p130_res_pos_quick_") for n in files), list(files))
+        info = next(v for n, v in files.items() if n.startswith("j1velmod_info_"))
+        self.assertIn("條件組: RES", info)
 
 
 class TestURScript(Base):
@@ -297,6 +340,7 @@ class TestMain(Base):
     def test_quick_end_to_end(self):
         m = load("jv_e2e")
         m.J1_SAFE_MIN_DEG, m.J1_SAFE_MAX_DEG = WIN
+        m.CONDITION_SET = "STD"                             # STD 沿用 11/5、11/12 的檔名（不加條件組標籤）
         for d, label in ((+1, "pos"), (-1, "neg")):
             scripts, files = self._run(m, direction=d)
             self.assertEqual(len(scripts), 1)
@@ -482,6 +526,20 @@ class TestAnalysis(unittest.TestCase):
                 self.assertAlmostEqual(c["freq_meas"], c["freq"], delta=1e-3, msg=cm)
             bias = r["conditions"][1]["J_variants"]["無重力項（只看影響）"] - J_TRUE
             self.assertGreater(bias, 3.0, f"0.5 Hz 不放重力項的偏差 {bias:.2f}")
+
+    def test_res_recovers_J(self):
+        """RES：49 段全部配對到 7 個條件，3.5 Hz 也找回 J（剛體模擬，沒有共振）。"""
+        for d in (+1, -1):
+            m, r = self.result("res_pos" if d > 0 else "res_neg", d=d, cset="RES")
+            msg = f"RES 方向 {d:+d}"
+            self.assertEqual(len(r["segments"]), 49, msg)
+            self.assertEqual(r["skipped"], 0, msg)
+            self.assertEqual(sorted(r["conditions"]), list(range(7)), msg)
+            for ci, c in r["conditions"].items():
+                cm = f"{msg} 條件 {ci + 1}（{c['freq']} Hz）"
+                self.assertLess(abs(c["J"] - J_TRUE), 3 * c["se_J"] + 0.05, f"{cm}：J = {c['J']:.4f} ± {c['se_J']:.4f}")
+                self.assertAlmostEqual(c["freq_meas"], c["freq"], delta=1e-3, msg=cm)
+            self.assertEqual(r["conditions"][6]["freq"], 3.5)
 
     def test_quick_only_lists_segments(self):
         _, r = self.result("quick", stage="QUICK")
