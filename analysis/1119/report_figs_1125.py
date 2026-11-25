@@ -178,15 +178,9 @@ for ax, j, yl in zip(axs, (2, 3, 4, 5), ((6, 15), (1.4, 3.0), (1.2, 2.4), (1.4, 
         v = np.round(np.abs([s[1] for s in seg]), 3); tau = sgn * np.array([s[3] for s in seg])
         vs = np.unique(v)
         ax.scatter(vs, [tau[v == x].mean() - sgn * c["H"] for x in vs], label=lab, **kw)
-        # 各方向自己的直線（扣重力後截距都是 Tc，差別只在斜率）：C_pos = Tc + H、C_neg = Tc - H（C 已乘方向）
-        b_d, c_d = c[f"B_{d}"], c[f"C_{d}"] - sgn * c["H"]
-        ax.plot(vv, c_d + b_d * vv, color=col, lw=1.3, ls="--", zorder=2,
-                label=("正轉擬合" if d == "pos" else "反轉擬合"))
-    ax.plot(vv, c["Tc"] + c["B"] * vv, color=INK2, lw=1.2, zorder=3, alpha=0.7, label="兩方向合併 Tc + B·v")
-    dB = 100 * (c["B_pos"] / c["B_neg"] - 1)
+    ax.plot(vv, c["Tc"] + c["B"] * vv, color=INK2, lw=1.4, zorder=3, label="Tc + B·v")
     ax.text(0.01, yl[1] - 0.03 * (yl[1] - yl[0]),
-            f"B 正轉 {c['B_pos']:.2f}、反轉 {c['B_neg']:.2f}（差 {dB:+.0f}%）\n"
-            f"合併 B = {c['B']:.2f}，Tc = {c['Tc']:.2f}\n已扣重力 {c['H']:+.2f}",
+            f"B = {c['B']:.2f} ± {c['sd_B']:.2f}\nTc = {c['Tc']:.2f} ± {c['sd_Tc']:.2f}\n已扣重力 {c['H']:+.2f}",
             ha="left", va="top", fontsize=10.5, color=INK, linespacing=1.4)
     ax.set_xlim(0, 0.215); ax.set_ylim(*yl)
     ax.set_xlabel(f"J{j} 速度 [rad/s]")
@@ -194,14 +188,12 @@ for ax, j, yl in zip(axs, (2, 3, 4, 5), ((6, 15), (1.4, 3.0), (1.2, 2.4), (1.4, 
     style(ax)
 axs[0].set_ylabel("扣掉重力後的力矩大小 [N·m]")
 axs[3].legend(loc="lower right", frameon=False, fontsize=10)
-fig.suptitle("圖 1　J2～J5 定速（診斷姿態）：沒有重力的 J4、J5 正反重合；有重力的 J2、J3 高速時分開，重力幫忙的正轉 B 較大",
-             x=0.01, ha="left", fontsize=13.5, color=INK)
+fig.suptitle("圖 1　J2～J5 定速（診斷姿態）：扣掉窗口內平均重力後，正反轉都落在同一條 Tc + B·v 上", x=0.01, ha="left",
+             fontsize=13.5, color=INK)
 fig.text(0.01, 0.005, "11/19 診斷姿態，末端工具 1.30 kg，9 檔速度（0.005～0.20 rad/s）先升後降，每點為同一檔升、降兩段的平均。"
-         f"B [N·m·s/rad]、Tc [N·m]。電流 × 各軸換算比例：J2 {K2}（砝碼校正），J3～J5 {KW}（暫定，101 × 0.0922）。\n"
-         "已扣重力 = 兩方向截距差的一半，所以扣完後兩方向的截距必然相同，要比的是兩條虛線的斜率。"
-         "J2、J3 的正轉是重力幫忙轉的方向。",
-         ha="left", va="bottom", fontsize=9, color=INK2, linespacing=1.5)
-fig.tight_layout(rect=(0, 0.075, 1, 0.94))
+         f"B [N·m·s/rad]、Tc [N·m]。電流 × 各軸換算比例：J2 {K2}（砝碼校正），J3～J5 {KW}（暫定，101 × 0.0922）。",
+         ha="left", va="bottom", fontsize=9, color=INK2)
+fig.tight_layout(rect=(0, 0.05, 1, 0.94))
 f3 = save(fig, "w1125_fig1_friction_j2_j5.png")
 
 # ---------------- 圖 4：手腕 J3～J5 速度調變 ----------------
